@@ -1,0 +1,110 @@
+{
+  "generatedAt": "2026-07-22T12:00:00Z",
+  "providerKind": "fixture",
+  "accounts": [
+    {
+      "id": "3E6777FE-4C2B-4110-B304-25D8571E87EB",
+      "name": "iCloud",
+      "email": "kris@icloud.com",
+      "mailboxes": [
+        {
+          "id": "imap://3E6777FE-4C2B-4110-B304-25D8571E87EB/INBOX",
+          "name": "Inbox",
+          "role": "inbox",
+          "unreadCount": 3,
+          "messages": [
+            {
+              "id": "CAF1x9qq-demo-001@mail.example.com",
+              "messageIdHeader": "CAF1x9qq-demo-001@mail.example.com",
+              "sender": "Sarah Chen",
+              "senderEmail": "sarah.chen@example.com",
+              "subject": "Q3 planning doc — comments by Friday?",
+              "snippet": "Hi Kris, I just shared the Q3 planning doc with you. Could you leave comments by Friday so we can…",
+              "date": "2026-07-22T11:42:00Z",
+              "isRead": false,
+              "isFlagged": false
+            },
+            {
+              "id": "58213",
+              "messageIdHeader": null,
+              "sender": "GitHub",
+              "senderEmail": "notifications@github.com",
+              "subject": "[mail-widget] PR #12: Add extraLarge layout",
+              "snippet": "Merged #12 into main. 3 checks passed. View the pull request on GitHub or reply to this email to…",
+              "date": "2026-07-22T10:15:00Z",
+              "isRead": false,
+              "isFlagged": true
+            },
+            {
+              "id": "b2f4e-demo-003@newsletters.example.org",
+              "messageIdHeader": "b2f4e-demo-003@newsletters.example.org",
+              "sender": "Swift Weekly",
+              "senderEmail": "hello@newsletters.example.org",
+              "subject": "Issue #214: WidgetKit tips for macOS",
+              "snippet": "This week: containerBackground pitfalls, AppIntents configuration recipes, and a deep dive into…",
+              "date": "2026-07-22T08:03:00Z",
+              "isRead": false,
+              "isFlagged": false
+            },
+            {
+              "id": "9a887-demo-004@shop.example.com",
+              "messageIdHeader": "9a887-demo-004@shop.example.com",
+              "sender": "DigiKey",
+              "senderEmail": "order@shop.example.com",
+              "subject": "Your order has shipped",
+              "snippet": "Tracking number 1Z999AA10123456784. Estimated delivery Thursday. View or manage your order…",
+              "date": "2026-07-21T22:48:00Z",
+              "isRead": true,
+              "isFlagged": false
+            }
+          ]
+        },
+        {
+          "id": "vip://3E6777FE-4C2B-4110-B304-25D8571E87EB",
+          "name": "VIP",
+          "role": "vip",
+          "unreadCount": 1,
+          "messages": [
+            {
+              "id": "CAF1x9qq-demo-001@mail.example.com",
+              "messageIdHeader": "CAF1x9qq-demo-001@mail.example.com",
+              "sender": "Sarah Chen",
+              "senderEmail": "sarah.chen@example.com",
+              "subject": "Q3 planning doc — comments by Friday?",
+              "snippet": "Hi Kris, I just shared the Q3 planning doc with you. Could you leave comments by Friday so we can…",
+              "date": "2026-07-22T11:42:00Z",
+              "isRead": false,
+              "isFlagged": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "7B01A2C4-1111-4222-8333-DEMO00000002",
+      "name": "Gmail",
+      "email": "wl2464649623@gmail.com",
+      "mailboxes": [
+        {
+          "id": "imap://7B01A2C4-1111-4222-8333-DEMO00000002/INBOX",
+          "name": "Inbox",
+          "role": "inbox",
+          "unreadCount": 1,
+          "messages": [
+            {
+              "id": "f00d-demo-005@ucimail.example.edu",
+              "messageIdHeader": "f00d-demo-005@ucimail.example.edu",
+              "sender": "Prof. McCarthy",
+              "senderEmail": "mccarthy@uci.example.edu",
+              "subject": "Meeting moved to 3pm Tuesday",
+              "snippet": "Kris — something came up Monday morning, can we move our meeting to Tuesday 3pm? Same office.…",
+              "date": "2026-07-22T09:30:00Z",
+              "isRead": false,
+              "isFlagged": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

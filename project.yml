@@ -1,0 +1,90 @@
+# OWNER: lead — 队友不得修改此文件
+name: MailWidget
+options:
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    DEVELOPMENT_TEAM: LR8V7939D4
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    MARKETING_VERSION: 0.1.0
+    CURRENT_PROJECT_VERSION: 1
+    ENABLE_USER_SCRIPT_SANDBOXING: NO
+targets:
+  MailWidgetApp:
+    type: application
+    platform: macOS
+    sources:
+      - MailWidgetApp
+      - DataKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kris.mailwidget
+        PRODUCT_NAME: MailWidget
+        ENABLE_HARDENED_RUNTIME: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: Configs/MailWidgetApp-Info.plist
+      properties:
+        LSUIElement: true
+        NSAppleEventsUsageDescription: MailWidget reads unread counts and recent messages from Mail (fallback data source).
+        CFBundleURLTypes:
+          - CFBundleURLName: com.kris.mailwidget.url
+            CFBundleURLSchemes: [mailwidget]
+    entitlements:
+      path: Configs/MailWidgetApp.entitlements
+      properties:
+        com.apple.security.automation.apple-events: true
+        com.apple.security.application-groups:
+          - LR8V7939D4.com.kris.mailwidget
+    dependencies:
+      - target: MailWidgetExtension
+        embed: true
+  MailWidgetExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - MailWidgetExtension
+      - DataKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kris.mailwidget.widget
+        PRODUCT_NAME: MailWidgetExtension
+        SKIP_INSTALL: YES
+    info:
+      path: Configs/MailWidgetExtension-Info.plist
+      properties:
+        CFBundleDisplayName: MailWidget
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: Configs/MailWidgetExtension.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.application-groups:
+          - LR8V7939D4.com.kris.mailwidget
+  DataKitTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - Tests/DataKitTests
+      - DataKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kris.mailwidget.datakittests
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  MailWidget:
+    build:
+      targets:
+        MailWidgetApp: all
+        DataKitTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - DataKitTests

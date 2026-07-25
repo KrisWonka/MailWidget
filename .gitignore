@@ -1,0 +1,11 @@
+# Xcode
+DerivedData/
+xcuserdata/
+*.xcuserstate
+build/
+
+# macOS
+.DS_Store
+
+# Session-local AI notes (keep spec.md tracked)
+SESSION_LOG.md

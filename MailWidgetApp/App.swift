@@ -1,0 +1,278 @@
+import SwiftUI
+import AppKit
+import CoreServices
+
+@main
+struct MailWidgetApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
+    var body: some Scene {
+        MenuBarExtra("MailWidget", systemImage: "envelope.fill") {
+            MenuBarContentView()
+        }
+        .menuBarExtraStyle(.window)
+
+        Settings {
+            SettingsView()
+        }
+    }
+}
+
+/// Handles the two things that don't fit cleanly into declarative `Scene`s:
+/// kicking off the background refresh loop at launch, showing the first-run
+/// Onboarding window, and routing `mailwidget://open` back into Mail.app.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var onboardingWindow: NSWindow?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // P0 fix: SwiftUI's `App`/`Scene` lifecycle (MenuBarExtra included) installs
+        // its own kAEGetURL Apple Event handler during setup, which silently
+        // supersedes `NSApplicationDelegate.application(_:open:)` — that delegate
+        // method is simply never called for a SwiftUI-lifecycle app. Registering our
+        // own handler here (after SwiftUI's own registration has already happened,
+        // since this runs from didFinishLaunching) makes ours win, since the last
+        // handler registered for a given event class/ID is the one Apple Event
+        // Manager dispatches to.
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleGetURLEvent(_:withReplyEvent:)),
+            forEventClass: AEEventClass(Self.getURLEventClass),
+            andEventID: AEEventID(Self.getURLEventID)
+        )
+
+        RefreshScheduler.shared.start()
+        if SnapshotStore.load() == nil {
+            showOnboardingWindow()
+        }
+    }
+
+    /// Both the class and the ID for the "open URL" Apple Event are the four-char
+    /// code 'GURL' — this is the actual stable OS-level constant apps have used for
+    /// URL-scheme handling for decades. The named C constants for it
+    /// (`kInternetEventClass`/`kAEGetURL`) aren't exposed in this SDK's headers, so
+    /// the value is computed directly instead of referencing them.
+    private static let getURLEventClass: UInt32 = fourCharCode("GURL")
+    private static let getURLEventID: UInt32 = fourCharCode("GURL")
+
+    private static func fourCharCode(_ string: String) -> UInt32 {
+        string.utf8.reduce(0) { ($0 << 8) | UInt32($1) }
+    }
+
+    /// Primary path (P0 fix): SwiftUI never forwards this event to
+    /// `application(_:open:)`, so we register directly with `NSAppleEventManager`
+    /// and unpack the URL string from the event's direct-object parameter ourselves.
+    @objc private func handleGetURLEvent(_ event: NSAppleEventDescriptor, withReplyEvent reply: NSAppleEventDescriptor) {
+        guard let string = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+              let url = URL(string: string) else { return }
+        handle(url)
+    }
+
+    /// Contract 3/8: the widget's card-level tap opens `mailwidget://open`, and a
+    /// mailbox-name header or Message-ID-less message row opens
+    /// `mailwidget://openMailbox?accountId=<id>`. Kept as a second path in case a
+    /// future macOS/SwiftUI version restores this delegate callback for custom
+    /// URL schemes — see `handleGetURLEvent(_:withReplyEvent:)` above for why this
+    /// alone isn't sufficient today.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls where url.scheme?.lowercased() == "mailwidget" {
+            handle(url)
+        }
+    }
+
+    private func handle(_ url: URL) {
+        NSLog("%@", "MailWidget: handling URL " + url.absoluteString)
+
+        // macOS delivers every URL a widget's Link opens to the widget's owning
+        // app's kAEGetURL handler, regardless of scheme — not just our own
+        // `mailwidget://` ones. A message row's `message://%3C...%3E` deep link
+        // (contract 3) lands here too; anything that isn't our own scheme just
+        // needs to be handed to the system to route to its real owner (Mail.app).
+        guard url.scheme?.lowercased() == "mailwidget" else {
+            // Contract 10: optimistic read-mark. The user is about to read this
+            // message in Mail (we're forwarding them there right now), so clear
+            // its unread dot in the snapshot immediately rather than waiting up
+            // to the full refresh interval for the next poll to notice. This is
+            // "optimistic" — Mail is the source of truth, and RefreshScheduler's
+            // Envelope Index-wal watch reconciles it for real shortly after.
+            if url.scheme?.lowercased() == "message", let messageIdHeader = Self.messageIdHeader(from: url) {
+                SnapshotStore.applyLocalReadMark(messageIdHeader: messageIdHeader)
+            }
+
+            // Plain `open(_:)` doesn't carry an activation token for an
+            // LSUIElement app, so the target app (Mail) opens its window in the
+            // background and never comes to the front. `activates = true` fixes
+            // that; fire-and-forget is fine here, no completion handling needed.
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = true
+            NSWorkspace.shared.open(url, configuration: configuration)
+            return
+        }
+
+        guard let host = url.host?.lowercased() else { return }
+        switch host {
+        case "open":
+            MailAppOpener.openMailbox(accountName: nil)
+        case "openmailbox":
+            let accountID = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "accountId" })?.value
+            let accountName = accountID.flatMap { id in
+                SnapshotStore.load()?.accounts.first(where: { $0.id == id })?.name
+            }
+            MailAppOpener.openMailbox(accountName: accountName)
+        case "markallread":
+            guard let scope = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "scope" })?.value else { return }
+            // Contract 11: optimistic snapshot update first (instant unread-dot
+            // clear), then the real batch mark-read in Mail — same
+            // optimistic-then-reconcile shape as the single-message read mark above.
+            SnapshotStore.applyLocalMarkAllRead(scopeID: scope)
+            MailAppOpener.markAllRead(accountNames: Self.accountNames(forScope: scope))
+        default:
+            break
+        }
+    }
+
+    /// `scope` uses the same string format as `MailScopeEntity` on the widget
+    /// side ("all" / "account:<id>") — that type lives in the extension target,
+    /// not this one, so the "account:" prefix is matched here as a literal
+    /// rather than shared. `"all"` (or anything else that isn't "account:...")
+    /// maps to nil, meaning "every account" to `MailAppOpener.markAllRead`.
+    private static func accountNames(forScope scope: String) -> [String]? {
+        let accountPrefix = "account:"
+        guard scope.hasPrefix(accountPrefix) else { return nil }
+        let accountID = String(scope.dropFirst(accountPrefix.count))
+        guard let name = SnapshotStore.load()?.accounts.first(where: { $0.id == accountID })?.name else {
+            return nil
+        }
+        return [name]
+    }
+
+    /// Recovers the bare RFC Message-ID from a `message://%3C...%3E` deep link:
+    /// strip the scheme prefix, undo the percent-encoding `MailDeepLink` applied,
+    /// then trim the surrounding angle brackets Mail's URL scheme expects.
+    private static func messageIdHeader(from url: URL) -> String? {
+        let prefix = "message://"
+        guard url.absoluteString.hasPrefix(prefix) else { return nil }
+        let encoded = String(url.absoluteString.dropFirst(prefix.count))
+        guard var id = encoded.removingPercentEncoding else { return nil }
+        if id.hasPrefix("<") { id.removeFirst() }
+        if id.hasSuffix(">") { id.removeLast() }
+        return id.isEmpty ? nil : id
+    }
+
+    private func showOnboardingWindow() {
+        if onboardingWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 460, height: 460),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "Welcome to MailWidget"
+            window.isReleasedWhenClosed = false
+            window.center()
+            window.contentView = NSHostingView(rootView: OnboardingView())
+            onboardingWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        onboardingWindow?.makeKeyAndOrderFront(nil)
+    }
+}
+
+/// The MenuBarExtra dropdown: total unread count, a per-account breakdown,
+/// "Refresh Now", "Settings…", and "Quit".
+private struct MenuBarContentView: View {
+    @State private var snapshot: MailSnapshot?
+    @State private var isRefreshing = false
+
+    private let refreshTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            totalUnreadHeader
+            Divider()
+            accountsList
+            Divider()
+            actionButtons
+        }
+        .padding(14)
+        .frame(width: 300)
+        .onAppear { reload() }
+        .onReceive(refreshTimer) { _ in reload() }
+    }
+
+    private var totalUnreadCount: Int {
+        guard let snapshot else { return 0 }
+        return snapshot.accounts.reduce(0) { $0 + unreadCount(for: $1) }
+    }
+
+    private var totalUnreadHeader: some View {
+        HStack {
+            Image(systemName: "envelope.fill")
+                .foregroundStyle(Color.accentColor)
+            Text("\(totalUnreadCount) unread")
+                .font(.headline)
+            Spacer()
+        }
+    }
+
+    @ViewBuilder
+    private var accountsList: some View {
+        if let snapshot, !snapshot.accounts.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(snapshot.accounts, id: \.id) { account in
+                    HStack {
+                        Text(account.name)
+                            .font(.subheadline)
+                            .lineLimit(1)
+                        Spacer()
+                        Text("\(unreadCount(for: account))")
+                            .font(.subheadline.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        } else {
+            Text("No accounts yet — open Settings to get started.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func unreadCount(for account: AccountSummary) -> Int {
+        account.mailboxes.filter { $0.role == "inbox" }.reduce(0) { $0 + $1.unreadCount }
+    }
+
+    private var actionButtons: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button {
+                Task { await refreshNow() }
+            } label: {
+                Label(isRefreshing ? "Refreshing…" : "Refresh Now", systemImage: "arrow.clockwise")
+            }
+            .disabled(isRefreshing)
+
+            SettingsLink {
+                Label("Settings…", systemImage: "gearshape")
+            }
+
+            Button {
+                NSApp.terminate(nil)
+            } label: {
+                Label("Quit MailWidget", systemImage: "power")
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func reload() {
+        snapshot = SnapshotStore.load()
+    }
+
+    private func refreshNow() async {
+        isRefreshing = true
+        _ = await RefreshScheduler.shared.refreshNow()
+        reload()
+        isRefreshing = false
+    }
+}
