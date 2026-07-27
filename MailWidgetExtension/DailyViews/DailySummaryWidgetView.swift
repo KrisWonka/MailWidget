@@ -1,7 +1,21 @@
 // DailySummaryWidgetView.swift
-// Gmail 日报 widget 的渲染。骨架（背景、外边距、字号阶梯、行间距、header 下的分隔线）
-// 全部走 WidgetTheme，与 MailWidget 保持一致；日报自己的要素——level 色条、生成时间、
-// headline、五级语义、空态/未初始化态两种文案——一个不少。
+// Gmail 日报 widget 的渲染。
+//
+// 版式：总结与邮件交叉。
+//
+//   ✉ Gmail 日报  7月27日 09:03      详情  ▲1/2▼   3
+//   ────────────────────────────────────────────────
+//   总体总结（headline）
+//   ────────────────────────────────────────────────
+//   ▍第 1 件的标题
+//     几行话总结
+//     ● 发件人                              2天前     ← 真实邮件行
+//       主题…
+//   ────────────────────────────────────────────────
+//   ▍第 2 件…
+//
+// 邮件那一行直接复用 MailWidget 的 MessageRow，所以两个 widget 是同一套零件：
+// 未读圆点、发件人加粗、主题、相对时间、以及"点进 Mail.app"的跳转逻辑全部一致。
 
 import SwiftUI
 import WidgetKit
@@ -30,25 +44,23 @@ struct DailySummaryWidgetView: View {
             spacing: isLarge ? WidgetTheme.sectionSpacingLarge : WidgetTheme.sectionSpacingMedium
         ) {
             header
+            Divider()
 
-            if let summary = entry.summary {
-                // Medium 不重复显示 headline：header 已经占掉一行，再放 headline
-                // 会把本就紧张的 158pt 挤到只剩一两条邮件。
-                if isLarge, !summary.headline.isEmpty {
-                    Text(summary.headline)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
+            if let brief = entry.brief {
+                if !brief.headline.isEmpty {
+                    Text(brief.headline)
+                        .font(WidgetTheme.metaFont)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(isLarge ? 3 : 2)
+                    Divider()
                 }
 
-                Divider()
-
-                if summary.items.isEmpty {
+                if brief.items.isEmpty {
                     emptyState
                 } else {
-                    itemList(summary.items)
+                    briefList(brief.items)
                 }
             } else {
-                Divider()
                 unavailableState
             }
         }
@@ -59,56 +71,111 @@ struct DailySummaryWidgetView: View {
         }
     }
 
+    // MARK: - Header
+
+    /// 结构与 MailWidget 的 MailboxHeaderRow 对齐：标题、Spacer、辅助按钮、翻页、计数。
+    /// 差别只有两处：日期紧贴在标题右侧；没有"全部已读"按钮（日报不需要）。
     private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             Label("Gmail 日报", systemImage: "envelope.fill")
                 .font(WidgetTheme.headerFont)
-            Spacer(minLength: 8)
-            if let date = entry.summary?.generatedDate {
+                .lineLimit(1)
+
+            if let date = entry.brief?.generatedDate {
                 Text(Self.generatedAtFormatter.string(from: date))
                     .font(WidgetTheme.metaFont)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
+
+            Spacer(minLength: 4)
+
+            detailButton
+
+            if let pageInfo = entry.brief?.pageInfo, pageInfo.totalPages > 1 {
+                pageControls(pageInfo)
+            }
+
+            Text("\(entry.brief?.unreadCount ?? 0)")
+                .font(.title2.weight(.bold))
+                .foregroundStyle((entry.brief?.unreadCount ?? 0) > 0 ? Color.accentColor : Color.secondary)
         }
     }
 
-    /// 行数由 `ViewThatFits` 挑，不再写死 3 / 6。
-    ///
-    /// 这是必需的，不是锦上添花：行标题从 `caption` 提到 `subheadline` 之后每行都变高，
-    /// 去掉行间 Divider 省下的高度补不回来。Medium 只有约 158pt 可用，写死 3 行会溢出。
-    /// 候选按从高到矮排列，`ViewThatFits` 取第一个真正放得下的。
+    /// 进入宿主 app 的日报详细页面。走 `mailwidget://` 自有 scheme，由 AppDelegate 接。
+    private var detailButton: some View {
+        Link(destination: URL(string: "mailwidget://dailyDetail")!) {
+            Image(systemName: "list.bullet.rectangle")
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
+    /// ▲ 上一页、▼ 下一页。到头时 targetPage 被夹回当前页，同页点击是空操作，
+    /// 所以不需要额外的禁用态 —— 与 MailWidget 的做法一致。
+    private func pageControls(_ pageInfo: PageInfo) -> some View {
+        HStack(spacing: 4) {
+            Button(intent: DailyPageIntent(targetPage: max(pageInfo.currentPage - 1, 0))) {
+                Image(systemName: "chevron.up")
+            }
+            .buttonStyle(.plain)
+
+            Text("\(pageInfo.currentPage + 1)/\(pageInfo.totalPages)")
+                .foregroundStyle(.secondary)
+
+            Button(intent: DailyPageIntent(targetPage: min(pageInfo.currentPage + 1, pageInfo.totalPages - 1))) {
+                Image(systemName: "chevron.down")
+            }
+            .buttonStyle(.plain)
+        }
+        .font(.caption)
+    }
+
+    // MARK: - 一份一份
+
+    /// 候选按从高到矮排列，`ViewThatFits` 取第一个真正放得下的。每一份约 80pt，
+    /// 比合并前的单行高得多，所以摘要行数也要参与降级，否则会在"3 份"和"2 份"之间
+    /// 留下一大块空白。
     @ViewBuilder
-    private func itemList(_ items: [DailySummaryItem]) -> some View {
+    private func briefList(_ items: [DailyBriefItem]) -> some View {
         if isLarge {
             ViewThatFits(in: .vertical) {
-                rows(items, count: 6)
-                rows(items, count: 5)
-                rows(items, count: 4)
-                rows(items, count: 3)
-                rows(items, count: 2)
-                rows(items, count: 1)
+                stack(items, count: 3, detailLines: 2)
+                stack(items, count: 3, detailLines: 1)
+                stack(items, count: 2, detailLines: 2)
+                stack(items, count: 2, detailLines: 1)
+                stack(items, count: 1, detailLines: 2)
+                stack(items, count: 1, detailLines: 1)
             }
         } else {
             ViewThatFits(in: .vertical) {
-                rows(items, count: 3)
-                rows(items, count: 2)
-                rows(items, count: 1)
+                stack(items, count: 1, detailLines: 2)
+                stack(items, count: 1, detailLines: 1)
             }
         }
     }
 
-    private func rows(_ items: [DailySummaryItem], count: Int) -> some View {
-        VStack(alignment: .leading, spacing: WidgetTheme.rowSpacing) {
-            ForEach(Array(items.prefix(count))) { item in
-                WidgetItemRow(
-                    item: item,
-                    showTwoDetailLines: isLarge,
-                    localMessageIDs: entry.localMessageIDs,
-                    mailAccountID: entry.mailAccountID
+    private func stack(_ items: [DailyBriefItem], count: Int, detailLines: Int) -> some View {
+        let visible = Array(items.prefix(count))
+        return VStack(alignment: .leading, spacing: WidgetTheme.rowSpacing) {
+            ForEach(Array(visible.enumerated()), id: \.element.id) { index, entry in
+                DailyBriefCard(
+                    brief: entry,
+                    detailLines: detailLines,
+                    mailAccountID: mailAccountID
                 )
+                if index < visible.count - 1 {
+                    Divider()
+                }
             }
         }
     }
+
+    private var mailAccountID: String? { entry.mailAccountID }
+
+    // MARK: - 空态
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -134,45 +201,48 @@ struct DailySummaryWidgetView: View {
     }
 }
 
-/// 一条日报有**两个**独立的跳转目标：行主体进 Mail.app，行末的 ↗ 进 Gmail 网页。
-/// 跟 MailWidget 的行为对齐（那边点行也是进 Mail），同时保留原来的 Gmail 入口——
-/// ↗ 之前是纯装饰，现在它有了实际用处。
-private struct WidgetItemRow: View {
-    let item: DailySummaryItem
-    let showTwoDetailLines: Bool
-    let localMessageIDs: Set<String>
+/// 一「份」：level 色条 + 标题 + 几行话总结，下面接那封信本身。
+///
+/// 邮件那一行直接用 MailWidget 的 `MessageRow`，包括它自己的跳转逻辑
+/// （有 Message-ID 就 `message://` 打开那封信，否则打开该账户的邮箱）。
+/// 关联不到邮件时退化成一个指向 Mail 邮箱的链接，仍然不会掉进浏览器。
+private struct DailyBriefCard: View {
+    let brief: DailyBriefItem
+    let detailLines: Int
     let mailAccountID: String?
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            summaryBlock
+            mailBlock
+        }
+    }
+
+    private var summaryBlock: some View {
         HStack(alignment: .top, spacing: 9) {
-            Link(destination: primaryDestination) {
-                HStack(alignment: .top, spacing: 9) {
-                    // level 色条 —— 日报独有的分级标识，
-                    // 对应 [立即]/[今天]/[本周]/[可选]/[知悉]。
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(item.level.tint)
-                        .frame(width: 4, height: 31)
+            // level 色条 —— 日报独有的分级标识，
+            // 对应 [立即]/[今天]/[本周]/[可选]/[知悉]。
+            RoundedRectangle(cornerRadius: 2)
+                .fill(brief.item.level.tint)
+                .frame(width: 4)
+                .frame(maxHeight: .infinity)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(item.title)
-                            .font(WidgetTheme.rowTitleFont)
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        if !item.detail.isEmpty {
-                            Text(item.detail)
-                                .font(WidgetTheme.metaFont)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(showTwoDetailLines ? 2 : 1)
-                        }
-                    }
-
-                    Spacer(minLength: 4)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(brief.item.title)
+                    .font(WidgetTheme.rowTitleFont)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                if !brief.item.detail.isEmpty {
+                    Text(brief.item.detail)
+                        .font(WidgetTheme.metaFont)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(detailLines)
                 }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
 
-            Link(destination: item.gmailURL) {
+            Spacer(minLength: 4)
+
+            Link(destination: brief.item.gmailURL) {
                 Image(systemName: "arrow.up.right")
                     .font(WidgetTheme.metaFont)
                     .foregroundStyle(.tertiary)
@@ -180,27 +250,35 @@ private struct WidgetItemRow: View {
             }
             .buttonStyle(.plain)
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// 行主体**始终落在 Mail.app 里**，绝不掉进浏览器。网页只在 ↗ 上。
-    ///
-    /// 三级回落，与 MailWidget 的 MessageRow 同一套逻辑：
-    /// 1. Message-ID 有值且确实在本地快照里 → `message://` 直接打开那封信
-    /// 2. 否则 → 打开 Mail 里的日报邮箱（信可能没同步下来，但至少人在 Mail 里）
-    /// 3. 连账户都认不出来（快照还没抓过）→ 才回落 gmailURL
-    ///
-    /// 第 1 步的快照校验是必需的：Mail 本地没有的信，`message://` 会把 Mail 拉起来
-    /// 却什么都找不到，而这种失败在点击之后无法检测。
-    private var primaryDestination: URL {
-        if let header = item.messageIdHeader,
-           localMessageIDs.contains(header),
-           let mailURL = MailDeepLink.message(for: header) {
-            return mailURL
+    /// 三档，都落在 Mail.app 里：
+    /// 1. 快照关联到了 → 直接用 MailWidget 的 MessageRow，真实发件人/主题/未读点/时间
+    /// 2. 没关联到但有 Message-ID → 仍然给 `message://`，只是显示不出发件人和主题
+    /// 3. 连 Message-ID 都没有 → 打开该账户的邮箱
+    @ViewBuilder
+    private var mailBlock: some View {
+        if let message = brief.message, let accountID = brief.accountID {
+            MessageRow(message: message, accountID: accountID)
+                .padding(.leading, 13)
+        } else if let url = brief.mailURL {
+            mailLink(url, title: "在「邮件」里打开这封信", icon: "envelope")
+        } else if let url = MailDeepLink.mailbox(accountID: mailAccountID), mailAccountID != nil {
+            mailLink(url, title: "在「邮件」里查看", icon: "tray")
         }
-        if let mailboxURL = MailDeepLink.mailbox(accountID: mailAccountID), mailAccountID != nil {
-            return mailboxURL
+    }
+
+    private func mailLink(_ url: URL, title: String, icon: String) -> some View {
+        Link(destination: url) {
+            Label(title, systemImage: icon)
+                .font(WidgetTheme.metaFont)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .contentShape(Rectangle())
         }
-        return item.gmailURL
+        .buttonStyle(.plain)
+        .padding(.leading, 13)
     }
 }
 

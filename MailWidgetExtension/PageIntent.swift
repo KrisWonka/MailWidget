@@ -38,20 +38,3 @@ struct MailPageIntent: AppIntent {
         return .result()
     }
 }
-
-/// Shared page-state key/read helper so `MailPageIntent` (write) and
-/// `MailTimelineProvider` (read) agree on the exact same UserDefaults key format.
-/// Per-scope, not per-widget-instance: two widgets configured to the same scope
-/// page together. That's an accepted simplification of the AppIntents state
-/// model, not an oversight — there's no per-widget-instance identifier available
-/// to key on here.
-enum PageState {
-    static func key(forScopeID scopeID: String) -> String {
-        "widgetPage.\(scopeID)"
-    }
-
-    static func currentPage(forScopeID scopeID: String) -> Int {
-        let defaults = UserDefaults(suiteName: SharedConstants.appGroupIdentifier)
-        return defaults?.integer(forKey: key(forScopeID: scopeID)) ?? 0
-    }
-}

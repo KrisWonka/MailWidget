@@ -2,24 +2,12 @@ import Foundation
 
 /// Contract 3/8 — deep links the widget uses to hand off to Mail.app / the host app.
 enum MailDeepLink {
-    /// Only characters that would actually break the URL get percent-encoded.
-    /// `@ . + $` (all legal, common Message-ID characters) are left as-is —
-    /// encoding `@` away is what silently broke deep links before.
-    private static let allowedMessageIDCharacters: CharacterSet = {
-        var set = CharacterSet.alphanumerics
-        set.insert(charactersIn: "-._~!$&'()*+,;=@")
-        return set
-    }()
-
-    /// A single message: `message://<Message-ID>` (double slash — the
-    /// community-verified stable form; a single slash silently no-ops on some
-    /// Mail.app versions). `messageIdHeader` is the RFC Message-ID without angle
-    /// brackets; Mail expects them percent-encoded as `%3C`/`%3E`.
+    /// A single message: `message://<Message-ID>`. The construction (including the
+    /// percent-encoding rules that `@` must survive) lives in DataKit's
+    /// `MailMessageLink` so the host app's daily-brief detail window builds byte
+    /// identical URLs instead of keeping a second copy that can drift.
     static func message(for messageIdHeader: String) -> URL? {
-        guard let encoded = messageIdHeader.addingPercentEncoding(withAllowedCharacters: allowedMessageIDCharacters) else {
-            return nil
-        }
-        return URL(string: "message://%3C\(encoded)%3E")
+        MailMessageLink.url(forMessageIdHeader: messageIdHeader)
     }
 
     /// Contract 8 — routes through the host app's URL scheme, which resolves

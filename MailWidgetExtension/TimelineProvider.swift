@@ -11,17 +11,6 @@ struct ScopedMessage {
     let message: MessageSummary
 }
 
-/// Contract 9 — pagination state for a scope, attached to a `ResolvedScope` once
-/// it's been sliced to the current page. `currentPage`/`totalPages` are 0-based /
-/// 1-based respectively for display; `scopeID` is threaded through so the header's
-/// ▲/▼ buttons can construct a `MailPageIntent` without needing the configuration
-/// intent in scope.
-struct PageInfo {
-    let scopeID: String
-    let currentPage: Int
-    let totalPages: Int
-}
-
 /// A scope (chosen via `MailWidgetConfigurationIntent`) resolved against the latest
 /// snapshot into a single flattened view: a title to show in the header, a combined
 /// unread count, an owning account (for the header's mailbox-name link — nil for

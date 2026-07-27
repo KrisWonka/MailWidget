@@ -38,6 +38,7 @@ struct MailWidgetApp: App {
 /// Onboarding window, and routing `mailwidget://open` back into Mail.app.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var onboardingWindow: NSWindow?
+    private var dailyDetailWindow: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // P0 fix: SwiftUI's `App`/`Scene` lifecycle (MenuBarExtra included) installs
@@ -139,6 +140,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 SnapshotStore.load()?.accounts.first(where: { $0.id == id })?.name
             }
             MailAppOpener.openMailbox(accountName: accountName)
+        case "dailydetail":
+            showDailyDetailWindow()
         case "markallread":
             guard let scope = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "scope" })?.value else { return }
@@ -178,6 +181,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if id.hasPrefix("<") { id.removeFirst() }
         if id.hasSuffix(">") { id.removeLast() }
         return id.isEmpty ? nil : id
+    }
+
+    /// 日报详细页面。宿主是 LSUIElement（无 Dock 图标），所以窗口手工创建，
+    /// 与 Onboarding 同一套做法；`isReleasedWhenClosed = false` 让它可以反复打开。
+    private func showDailyDetailWindow() {
+        if dailyDetailWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 560, height: 560),
+                styleMask: [.titled, .closable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "Gmail 日报"
+            window.isReleasedWhenClosed = false
+            window.center()
+            window.contentView = NSHostingView(rootView: DailyDetailView())
+            dailyDetailWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        dailyDetailWindow?.makeKeyAndOrderFront(nil)
     }
 
     private func showOnboardingWindow() {
