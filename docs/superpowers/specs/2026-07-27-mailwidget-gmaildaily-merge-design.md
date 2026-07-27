@@ -354,10 +354,14 @@ Apple Notes 发布路径**保持启用**。它当前是活的（`memory.md` 记�
 1. **桌面上现有的「Gmail 日报」组件会失效**，需要右键重新添加一次。
    extension 的 bundle ID 从 `com.kris.GmailDailyWidget.WidgetExtension` 变为
    `com.kris.mailwidget.widget`，系统视为新组件。
-2. **MailWidget 的「完全磁盘访问」需要重新授权**。TCC 授权绑定 bundle 路径与签名，
-   从 DerivedData 移到 `/Applications` 后授权不继承。未重新授权会自动降级到 AppleScript 兜底通道
-   （功能可用但只读 10 封、且会拉起 Mail.app）。
-3. `/Applications/GmailDailyWidget.app` **暂不删除**，等新链路验证通过后再由用户决定。
+   MailWidget 自己的组件**不受影响**——它的 bundle ID 和安装路径都没变。
+2. `/Applications/GmailDailyWidget.app` **暂不删除**，等新链路验证通过后再由用户决定。
+
+设计初稿曾判断"MailWidget 的完全磁盘访问需要重新授权"，**该判断已被实测推翻**：
+MailWidget 本来就安装在 `/Applications/MailWidget.app`（bundle ID `com.kris.mailwidget`、
+Team `LR8V7939D4`），并非从 DerivedData 迁入。路径、bundle ID、签名身份三者都不变，
+TCC 授权随之保留。install.sh 结束时仅提示"若菜单栏数据源显示为 appleScript 则去重新授权"，
+不再声称必须重新授权。
 
 widget 的 `kind` 保持 `com.kris.GmailDailyWidget.daily` 不变——它是 extension 内部标识，
 换值没有收益，只会多一处变更。

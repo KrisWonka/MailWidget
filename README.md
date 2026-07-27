@@ -6,16 +6,26 @@
 - 架构：菜单栏宿主 app 定时抓快照 → App Group → widget 渲染（widget 沙盒内不碰邮件数据）
 - 详细设计见 `spec.md`
 
-## 构建 & 运行
+桌面上是**两个各自独立的小组件**：
 
-**在 Mac 终端跑**（项目根目录）：
+- **MailWidget**（Small / Medium / Large / XL）— 实时收件箱
+- **Gmail 日报**（Medium / Large）— 外部 agent 每天推送的决策简报，见 `docs/superpowers/specs/`
+
+## 安装 / 更新
+
+**在 Mac 终端跑**：
 
 ```bash
-cd ~/Documents/mail_widget
-xcodegen generate
-xcodebuild -project MailWidget.xcodeproj -scheme MailWidget -configuration Debug build
-open ~/Library/Developer/Xcode/DerivedData/MailWidget-*/Build/Products/Debug/MailWidget.app
+~/Documents/mail_widget/scripts/install.sh
 ```
+
+它会构建 Release、逐项校验签名（Team ID、bundle ID、App Group、拒绝 ad-hoc 与
+provisioning profile），然后**事务式**替换 `/Applications/MailWidget.app`：新版通过全部
+校验并完成 pluginkit 注册前，旧版一直保留；中途出错或被中断会自动回滚并重新注册旧
+extension。
+
+必须装到 `/Applications` 而不是从 DerivedData 直接跑——日报的定时任务需要一个稳定的绝对
+路径来调用 `--ingest`。
 
 首次启动后：
 
@@ -32,6 +42,12 @@ open ~/Library/Developer/Xcode/DerivedData/MailWidget-*/Build/Products/Debug/Mai
 cd ~/Documents/mail_widget
 xcodebuild test -project MailWidget.xcodeproj -scheme MailWidget -only-testing:DataKitTests
 ```
+
+**不要给测试加 `-derivedDataPath .build/DerivedData`。** 本仓库位于 `~/Documents` 之下，
+而该目录受 TCC 保护；xcodebuild 拉起的 `xctest` 进程拿不到「文稿文件夹」权限，会看不见测试
+bundle 而报错 `Failed to create a bundle instance`——bundle 其实是好的，`xcrun xctest` 直接跑
+就能过。用默认的 DerivedData 路径即可。（`install.sh` 只做 `clean build` 不跑测试，所以它用
+仓库内的 `.build/DerivedData` 没有这个问题。）
 
 ## 目录结构 / 分工
 

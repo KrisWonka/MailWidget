@@ -9,3 +9,6 @@ build/
 
 # Session-local AI notes (keep spec.md tracked)
 SESSION_LOG.md
+
+# install.sh 的构建输出
+.build/

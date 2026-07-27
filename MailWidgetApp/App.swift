@@ -1,3 +1,4 @@
+import Darwin
 import SwiftUI
 import AppKit
 import CoreServices
@@ -5,6 +6,20 @@ import CoreServices
 @main
 struct MailWidgetApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
+    /// 命令行 ingest 模式：外部 agent 调
+    /// `MailWidget --ingest <json> [--source <id>]` 时，在 SwiftUI 建立任何 Scene
+    /// 之前就处理完并退出。这样这次调用不会拉起菜单栏图标、不会启动 RefreshScheduler，
+    /// 也不会干扰已经在跑的那个常驻实例。
+    init() {
+        if let exitCode = IngestCommand.runIfRequested(
+            arguments: ProcessInfo.processInfo.arguments
+        ) {
+            fflush(stdout)
+            fflush(stderr)
+            Darwin.exit(exitCode)
+        }
+    }
 
     var body: some Scene {
         MenuBarExtra("MailWidget", systemImage: "envelope.fill") {
@@ -39,6 +54,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             forEventClass: AEEventClass(Self.getURLEventClass),
             andEventID: AEEventID(Self.getURLEventID)
         )
+
+        // 合并前 GmailDailyWidget 有自己的 App Group；把它最后一份日报搬进来，
+        // 这样刚装好新版就能直接看到内容，而不是"等待第一份日报"。只跑一次，
+        // 旧容器的文件保留不删。
+        DailySummaryMigration.runIfNeeded()
 
         RefreshScheduler.shared.start()
         if SnapshotStore.load() == nil {

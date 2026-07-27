@@ -29,6 +29,11 @@ targets:
     info:
       path: Configs/MailWidgetApp-Info.plist
       properties:
+        # 必须是构建变量，不能让 xcodegen 写死 "1"：scripts/install.sh 每次构建
+        # 都注入一个递增的 UTC 时间戳版本号，靠它让系统丢掉缓存的旧 widget。
+        # 写死成常量的话，更新后桌面上仍会渲染旧内容。
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
         LSUIElement: true
         NSAppleEventsUsageDescription: MailWidget reads unread counts and recent messages from Mail (fallback data source).
         CFBundleURLTypes:
@@ -57,6 +62,10 @@ targets:
     info:
       path: Configs/MailWidgetExtension-Info.plist
       properties:
+        # 同宿主 app：extension 的版本号也必须跟着递增，否则 WidgetKit 会继续用
+        # 缓存里的旧 extension。
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleDisplayName: MailWidget
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
