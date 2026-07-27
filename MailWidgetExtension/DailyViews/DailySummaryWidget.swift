@@ -14,15 +14,25 @@ struct DailySummaryEntry: TimelineEntry {
 
     /// MailWidget 本地快照里出现过的 RFC Message-ID 集合。
     ///
-    /// 用来决定一条日报能不能安全地用 `message://` 打开 Mail.app：不在快照里，说明
-    /// Mail 本地没有这封信，点下去只会开出一个空窗口，那就老实回落 Gmail 网页。
+    /// 用来决定一条日报能不能安全地用 `message://` 打开那封具体的信：不在快照里，说明
+    /// Mail 本地没有这封信，点下去只会开出一个空窗口，此时退一步打开该邮箱（仍在 Mail 里）。
     /// 快照每个收件箱存最近 50 封，而日报只覆盖最近 24 小时，所以正常情况命中率很高。
     let localMessageIDs: Set<String>
 
-    init(date: Date, summary: DailySummary?, localMessageIDs: Set<String> = []) {
+    /// 日报邮箱在 Mail.app 里对应的账户 ID。行主体拿不到具体某封信时的兜底目标——
+    /// 打开 Mail 里那个邮箱，而不是掉进浏览器。
+    let mailAccountID: String?
+
+    init(
+        date: Date,
+        summary: DailySummary?,
+        localMessageIDs: Set<String> = [],
+        mailAccountID: String? = nil
+    ) {
         self.date = date
         self.summary = summary
         self.localMessageIDs = localMessageIDs
+        self.mailAccountID = mailAccountID
     }
 }
 
@@ -36,7 +46,8 @@ struct DailySummaryProvider: TimelineProvider {
             DailySummaryEntry(
                 date: .now,
                 summary: loadSummary() ?? .placeholder,
-                localMessageIDs: loadLocalMessageIDs()
+                localMessageIDs: loadLocalMessageIDs(),
+                mailAccountID: loadMailAccountID()
             )
         )
     }
@@ -48,7 +59,8 @@ struct DailySummaryProvider: TimelineProvider {
         let entry = DailySummaryEntry(
             date: .now,
             summary: loadSummary(),
-            localMessageIDs: loadLocalMessageIDs()
+            localMessageIDs: loadLocalMessageIDs(),
+            mailAccountID: loadMailAccountID()
         )
         let nextFallbackRefresh = Calendar.current.date(byAdding: .hour, value: 4, to: .now) ?? .now
         completion(Timeline(entries: [entry], policy: .after(nextFallbackRefresh)))
@@ -58,8 +70,14 @@ struct DailySummaryProvider: TimelineProvider {
         try? DailySummaryStore().load()
     }
 
+    /// 日报邮箱在 Mail.app 里的账户 ID，按邮箱地址精确匹配。
+    private func loadMailAccountID() -> String? {
+        SnapshotStore.load()?.accounts
+            .first { $0.email == DailySummaryConstants.expectedMailbox }?
+            .id
+    }
+
     /// 复用 MailWidget 那份已经在跑的收件箱快照，不额外读 Mail 的数据。
-    /// 快照缺失（还没抓过）时返回空集合，日报就整体回落 Gmail —— 与合并前的行为一致。
     private func loadLocalMessageIDs() -> Set<String> {
         guard let snapshot = SnapshotStore.load() else { return [] }
         return Set(
@@ -79,7 +97,7 @@ struct DailySummaryWidget: Widget {
             DailySummaryWidgetView(entry: entry)
         }
         .configurationDisplayName("Gmail 日报")
-        .description("把真正需要注意的邮件放到桌面；点任意一条直接打开 Gmail。")
+        .description("把真正需要注意的邮件放到桌面；点任意一条直接在「邮件」里打开。")
         .supportedFamilies([.systemMedium, .systemLarge])
     }
 }

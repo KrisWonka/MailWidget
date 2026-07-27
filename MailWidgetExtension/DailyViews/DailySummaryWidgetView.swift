@@ -103,7 +103,8 @@ struct DailySummaryWidgetView: View {
                 WidgetItemRow(
                     item: item,
                     showTwoDetailLines: isLarge,
-                    localMessageIDs: entry.localMessageIDs
+                    localMessageIDs: entry.localMessageIDs,
+                    mailAccountID: entry.mailAccountID
                 )
             }
         }
@@ -133,13 +134,14 @@ struct DailySummaryWidgetView: View {
     }
 }
 
-/// 一条日报有**两个**独立的跳转目标：行主体进 Mail.app 里那封信，行末的 ↗ 进
-/// Gmail 网页。跟 MailWidget 的行为对齐（那边点行也是进 Mail），同时保留原来的
-/// Gmail 入口——↗ 之前是纯装饰，现在它有了实际用处。
+/// 一条日报有**两个**独立的跳转目标：行主体进 Mail.app，行末的 ↗ 进 Gmail 网页。
+/// 跟 MailWidget 的行为对齐（那边点行也是进 Mail），同时保留原来的 Gmail 入口——
+/// ↗ 之前是纯装饰，现在它有了实际用处。
 private struct WidgetItemRow: View {
     let item: DailySummaryItem
     let showTwoDetailLines: Bool
     let localMessageIDs: Set<String>
+    let mailAccountID: String?
 
     var body: some View {
         HStack(alignment: .top, spacing: 9) {
@@ -180,17 +182,25 @@ private struct WidgetItemRow: View {
         }
     }
 
-    /// 只有当这封信的 Message-ID 确实出现在本地快照里，才敢给 Mail 深链——否则
-    /// Mail 会被拉起来却什么都找不到。拿不准就回落 Gmail，那条路一定通。
+    /// 行主体**始终落在 Mail.app 里**，绝不掉进浏览器。网页只在 ↗ 上。
+    ///
+    /// 三级回落，与 MailWidget 的 MessageRow 同一套逻辑：
+    /// 1. Message-ID 有值且确实在本地快照里 → `message://` 直接打开那封信
+    /// 2. 否则 → 打开 Mail 里的日报邮箱（信可能没同步下来，但至少人在 Mail 里）
+    /// 3. 连账户都认不出来（快照还没抓过）→ 才回落 gmailURL
+    ///
+    /// 第 1 步的快照校验是必需的：Mail 本地没有的信，`message://` 会把 Mail 拉起来
+    /// 却什么都找不到，而这种失败在点击之后无法检测。
     private var primaryDestination: URL {
-        guard
-            let header = item.messageIdHeader,
-            localMessageIDs.contains(header),
-            let mailURL = MailDeepLink.message(for: header)
-        else {
-            return item.gmailURL
+        if let header = item.messageIdHeader,
+           localMessageIDs.contains(header),
+           let mailURL = MailDeepLink.message(for: header) {
+            return mailURL
         }
-        return mailURL
+        if let mailboxURL = MailDeepLink.mailbox(accountID: mailAccountID), mailAccountID != nil {
+            return mailboxURL
+        }
+        return item.gmailURL
     }
 }
 
