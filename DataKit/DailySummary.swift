@@ -31,11 +31,38 @@ enum DailySummaryLevel: String, Codable, CaseIterable, Sendable {
 }
 
 struct DailySummaryItem: Codable, Equatable, Identifiable, Sendable {
+    /// Gmail 的 thread ID（没有 thread 时退化为 message ID）。它同时是 `gmailURL`
+    /// 片段里的那个 ID。
     let id: String
     let level: DailySummaryLevel
     let title: String
     let detail: String
     let gmailURL: URL
+
+    /// 被总结的那封信的 RFC Message-ID（不含尖括号），可选。
+    ///
+    /// 有它才能用 `message://` 深链打开 Mail.app 里对应的邮件 —— Gmail 的 thread ID
+    /// 与 RFC Message-ID 之间没有可推导的关系，本地也没法靠标题反查（日报标题是
+    /// AI 写的中文摘要，跟原始 subject 对不上），所以只能由生成方直接给出。
+    ///
+    /// 缺省时 widget 回落到 `gmailURL`，因此老的日报载荷照常工作。
+    let messageIdHeader: String?
+
+    init(
+        id: String,
+        level: DailySummaryLevel,
+        title: String,
+        detail: String,
+        gmailURL: URL,
+        messageIdHeader: String? = nil
+    ) {
+        self.id = id
+        self.level = level
+        self.title = title
+        self.detail = detail
+        self.gmailURL = gmailURL
+        self.messageIdHeader = messageIdHeader
+    }
 }
 
 struct DailySummary: Codable, Equatable, Sendable {
@@ -94,6 +121,25 @@ enum DailySummaryValidator {
                 throw DailySummaryValidationError.emptyTitle(itemID)
             }
             try validateGmailURL(item.gmailURL, itemID: itemID)
+            try validateMessageIDHeader(item.messageIdHeader, itemID: itemID)
+        }
+    }
+
+    /// 只在字段存在时校验。要求：去空白后非空、不含尖括号（`MailDeepLink` 自己补
+    /// `%3C`/`%3E`，带进来会变成双层）、不含空白字符（会破坏 URL）。
+    private static func validateMessageIDHeader(_ value: String?, itemID: String) throws {
+        guard let value else { return }
+
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard
+            !trimmed.isEmpty,
+            trimmed == value,
+            !value.contains("<"),
+            !value.contains(">"),
+            value.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+            value.count <= 998
+        else {
+            throw DailySummaryValidationError.invalidMessageID(itemID)
         }
     }
 
@@ -131,6 +177,7 @@ enum DailySummaryValidationError: LocalizedError, Equatable {
     case duplicateItemID(String)
     case emptyTitle(String)
     case invalidGmailURL(String)
+    case invalidMessageID(String)
 
     var errorDescription: String? {
         switch self {
@@ -150,6 +197,8 @@ enum DailySummaryValidationError: LocalizedError, Equatable {
             return "邮件条目 \(id) 的标题不能为空"
         case let .invalidGmailURL(id):
             return "邮件条目 \(id) 的链接必须指向当前邮箱中同 ID 的 Gmail 邮件"
+        case let .invalidMessageID(id):
+            return "邮件条目 \(id) 的 messageIdHeader 非法：需去掉尖括号、不含空白字符"
         }
     }
 }

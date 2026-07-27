@@ -11,6 +11,19 @@ import WidgetKit
 struct DailySummaryEntry: TimelineEntry {
     let date: Date
     let summary: DailySummary?
+
+    /// MailWidget 本地快照里出现过的 RFC Message-ID 集合。
+    ///
+    /// 用来决定一条日报能不能安全地用 `message://` 打开 Mail.app：不在快照里，说明
+    /// Mail 本地没有这封信，点下去只会开出一个空窗口，那就老实回落 Gmail 网页。
+    /// 快照每个收件箱存最近 50 封，而日报只覆盖最近 24 小时，所以正常情况命中率很高。
+    let localMessageIDs: Set<String>
+
+    init(date: Date, summary: DailySummary?, localMessageIDs: Set<String> = []) {
+        self.date = date
+        self.summary = summary
+        self.localMessageIDs = localMessageIDs
+    }
 }
 
 struct DailySummaryProvider: TimelineProvider {
@@ -19,20 +32,42 @@ struct DailySummaryProvider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (DailySummaryEntry) -> Void) {
-        completion(DailySummaryEntry(date: .now, summary: loadSummary() ?? .placeholder))
+        completion(
+            DailySummaryEntry(
+                date: .now,
+                summary: loadSummary() ?? .placeholder,
+                localMessageIDs: loadLocalMessageIDs()
+            )
+        )
     }
 
     /// 日报是推送式的：来源 agent 写完 latest.json 会主动调 `--ingest`，由它触发
     /// reloadTimelines。这里的 4 小时只是兜底，防止推送那一环整个失效时 widget
     /// 永远停在旧内容上。
     func getTimeline(in context: Context, completion: @escaping (Timeline<DailySummaryEntry>) -> Void) {
-        let entry = DailySummaryEntry(date: .now, summary: loadSummary())
+        let entry = DailySummaryEntry(
+            date: .now,
+            summary: loadSummary(),
+            localMessageIDs: loadLocalMessageIDs()
+        )
         let nextFallbackRefresh = Calendar.current.date(byAdding: .hour, value: 4, to: .now) ?? .now
         completion(Timeline(entries: [entry], policy: .after(nextFallbackRefresh)))
     }
 
     private func loadSummary() -> DailySummary? {
         try? DailySummaryStore().load()
+    }
+
+    /// 复用 MailWidget 那份已经在跑的收件箱快照，不额外读 Mail 的数据。
+    /// 快照缺失（还没抓过）时返回空集合，日报就整体回落 Gmail —— 与合并前的行为一致。
+    private func loadLocalMessageIDs() -> Set<String> {
+        guard let snapshot = SnapshotStore.load() else { return [] }
+        return Set(
+            snapshot.accounts
+                .flatMap(\.mailboxes)
+                .flatMap(\.messages)
+                .compactMap(\.messageIdHeader)
+        )
     }
 }
 

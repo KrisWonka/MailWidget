@@ -100,10 +100,11 @@ struct DailySummaryWidgetView: View {
     private func rows(_ items: [DailySummaryItem], count: Int) -> some View {
         VStack(alignment: .leading, spacing: WidgetTheme.rowSpacing) {
             ForEach(Array(items.prefix(count))) { item in
-                Link(destination: item.gmailURL) {
-                    WidgetItemRow(item: item, showTwoDetailLines: isLarge)
-                }
-                .buttonStyle(.plain)
+                WidgetItemRow(
+                    item: item,
+                    showTwoDetailLines: isLarge,
+                    localMessageIDs: entry.localMessageIDs
+                )
             }
         }
     }
@@ -132,36 +133,64 @@ struct DailySummaryWidgetView: View {
     }
 }
 
+/// 一条日报有**两个**独立的跳转目标：行主体进 Mail.app 里那封信，行末的 ↗ 进
+/// Gmail 网页。跟 MailWidget 的行为对齐（那边点行也是进 Mail），同时保留原来的
+/// Gmail 入口——↗ 之前是纯装饰，现在它有了实际用处。
 private struct WidgetItemRow: View {
     let item: DailySummaryItem
     let showTwoDetailLines: Bool
+    let localMessageIDs: Set<String>
 
     var body: some View {
         HStack(alignment: .top, spacing: 9) {
-            // level 色条 —— 日报独有的分级标识，对应 [立即]/[今天]/[本周]/[可选]/[知悉]。
-            RoundedRectangle(cornerRadius: 2)
-                .fill(item.level.tint)
-                .frame(width: 4, height: 31)
+            Link(destination: primaryDestination) {
+                HStack(alignment: .top, spacing: 9) {
+                    // level 色条 —— 日报独有的分级标识，
+                    // 对应 [立即]/[今天]/[本周]/[可选]/[知悉]。
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(item.level.tint)
+                        .frame(width: 4, height: 31)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title)
-                    .font(WidgetTheme.rowTitleFont)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                if !item.detail.isEmpty {
-                    Text(item.detail)
-                        .font(WidgetTheme.metaFont)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(showTwoDetailLines ? 2 : 1)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.title)
+                            .font(WidgetTheme.rowTitleFont)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        if !item.detail.isEmpty {
+                            Text(item.detail)
+                                .font(WidgetTheme.metaFont)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(showTwoDetailLines ? 2 : 1)
+                        }
+                    }
+
+                    Spacer(minLength: 4)
                 }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
 
-            Spacer(minLength: 4)
-            Image(systemName: "arrow.up.right")
-                .font(WidgetTheme.metaFont)
-                .foregroundStyle(.tertiary)
+            Link(destination: item.gmailURL) {
+                Image(systemName: "arrow.up.right")
+                    .font(WidgetTheme.metaFont)
+                    .foregroundStyle(.tertiary)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
-        .contentShape(Rectangle())
+    }
+
+    /// 只有当这封信的 Message-ID 确实出现在本地快照里，才敢给 Mail 深链——否则
+    /// Mail 会被拉起来却什么都找不到。拿不准就回落 Gmail，那条路一定通。
+    private var primaryDestination: URL {
+        guard
+            let header = item.messageIdHeader,
+            localMessageIDs.contains(header),
+            let mailURL = MailDeepLink.message(for: header)
+        else {
+            return item.gmailURL
+        }
+        return mailURL
     }
 }
 

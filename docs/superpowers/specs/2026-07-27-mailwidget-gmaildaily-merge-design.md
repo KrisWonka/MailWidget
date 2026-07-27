@@ -152,6 +152,28 @@ enum WidgetTheme {
 
 日报 widget **不新增**来源标记。来源只在 Settings 中显示。
 
+### 6.4 日报行的两个跳转目标
+
+一条日报有两个独立的 `Link`：
+
+| 点击区域 | 目标 |
+|---|---|
+| 行主体（色条 + 标题 + 详情） | `message://%3C<messageIdHeader>%3E` → Apple Mail 里那封信 |
+| 行末 ↗ 图标 | `gmailURL` → 浏览器打开 Gmail |
+
+↗ 图标此前是纯装饰（包在整行的 Link 里），现在成为独立入口，因此这是**增加**一个目标而非
+替换。行主体进 Mail 与 MailWidget 的行为一致。
+
+**回落规则**：只有当 `messageIdHeader` 存在、且该值出现在 MailWidget 的本地
+`snapshot.json` 中时，行主体才使用 `message://`；否则回落到 `gmailURL`。
+快照校验是必需的——Mail 本地没同步到的信，`message://` 会把 Mail 拉起来却什么都找不到，
+而这种失败无法在点击后检测。快照每个收件箱保留最近 50 封，日报只覆盖最近 24 小时，
+正常情况命中率很高。
+
+**为什么必须由生成方提供 Message-ID**：日报的 `id` 是 Gmail thread ID，Mail 认的是
+RFC Message-ID，两者之间没有可推导的关系；本地也无法靠标题反查——日报 `title` 是 AI 写的
+中文摘要（如"UCC 国际学生职业机会"），与原始 subject（英文）对不上。
+
 ## 7. 日报源仲裁
 
 ### 7.1 命令行接口
@@ -253,11 +275,19 @@ App 渲染模板时把三个占位符替换为真实值：
 
 ### 8.4 JSON schema
 
-沿用现状，不做任何修改。根对象恰好包含 `schemaVersion`(=1)、`mailbox`、`generatedAt`(RFC 3339 带偏移)、
-`headline`、`items`。`items` 至多 6 项，每项恰好包含 `id`、`level`、`title`、`detail`、`gmailURL`。
+`schemaVersion` 保持 `1`。根对象包含 `schemaVersion`、`mailbox`、`generatedAt`(RFC 3339 带偏移)、
+`headline`、`items`。`items` 至多 6 项，每项包含 `id`、`level`、`title`、`detail`、`gmailURL`，
+以及**可选**的 `messageIdHeader`。
 `level` ∈ {`immediate`,`today`,`week`,`optional`,`info`}。
 `gmailURL` 必须形如 `https://mail.google.com/mail/u/0/?authuser=krisxia%40umich.edu#all/<id>`，
 且 `<id>` 与该项 `id` 一致。
+
+`messageIdHeader` 是被总结的那封信的 RFC 5322 `Message-ID`，**去掉尖括号、无首尾空白**，
+例如 `20260726160340.13cbcf6413d3d6b2@mail.joinhandshake.com`。条目代表一个 thread 时，
+取该 thread 中最新一封的 header。取不到时**整个键省略**——不得写空串、`null`，也不得保留 `<`/`>`。
+
+这个字段没有提升 `schemaVersion`：它是纯增量的可选键，旧载荷解出来是 `nil`，
+新旧两侧互相都能读。校验器对缺省一律放行，只在存在时检查格式。
 
 ## 9. 四个调度出口
 
