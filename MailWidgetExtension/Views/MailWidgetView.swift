@@ -18,17 +18,12 @@ struct MailWidgetView: View {
         // widget's owning app, which for an LSUIElement host is invisible to the
         // user — i.e., no perceptible action, exactly what's wanted.
         //
-        // Background color: dark mode uses #0D0D0F rather than a more moderate
-        // near-black — macOS 26+ layers an automatic specular/glass highlight on
-        // top of whatever `.containerBackground` fills with (no first-party way
-        // to opt out of it), which lightens the rendered result. Going darker
-        // than the "true" target color is what keeps the *composited* appearance
-        // reading as near-black once that highlight is layered on top.
+        // Background color lives in WidgetTheme so the Gmail daily-summary widget
+        // renders on exactly the same base — see that type for why dark mode uses
+        // #0D0D0F rather than a more moderate near-black.
         contentView
             .containerBackground(for: .widget) {
-                colorScheme == .dark
-                    ? Color(red: 0x0D / 255, green: 0x0D / 255, blue: 0x0F / 255)
-                    : Color.white
+                WidgetTheme.background(colorScheme)
             }
     }
 

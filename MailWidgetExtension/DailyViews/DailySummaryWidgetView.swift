@@ -1,13 +1,14 @@
 // DailySummaryWidgetView.swift
-// Gmail 日报 widget 的渲染。从原 GmailDailyWidget/WidgetExtension/ 搬入，
-// 本步骤（合并）中渲染逻辑逐行保持不变 —— 视觉统一是下一步单独做的事，
-// 分开才能在出问题时立刻分清是管线问题还是样式问题。
+// Gmail 日报 widget 的渲染。骨架（背景、外边距、字号阶梯、行间距、header 下的分隔线）
+// 全部走 WidgetTheme，与 MailWidget 保持一致；日报自己的要素——level 色条、生成时间、
+// headline、五级语义、空态/未初始化态两种文案——一个不少。
 
 import SwiftUI
 import WidgetKit
 
 struct DailySummaryWidgetView: View {
     @Environment(\.widgetFamily) private var family
+    @Environment(\.colorScheme) private var colorScheme
 
     let entry: DailySummaryEntry
 
@@ -21,22 +22,25 @@ struct DailySummaryWidgetView: View {
         return formatter
     }()
 
-    private var itemLimit: Int {
-        family == .systemLarge ? 6 : 3
-    }
+    private var isLarge: Bool { family == .systemLarge }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: family == .systemLarge ? 10 : 5) {
+        VStack(
+            alignment: .leading,
+            spacing: isLarge ? WidgetTheme.sectionSpacingLarge : WidgetTheme.sectionSpacingMedium
+        ) {
             header
 
             if let summary = entry.summary {
                 // Medium 不重复显示 headline：header 已经占掉一行，再放 headline
-                // 会把本就紧张的 158pt 挤到只剩两条邮件。
-                if family == .systemLarge, !summary.headline.isEmpty {
+                // 会把本就紧张的 158pt 挤到只剩一两条邮件。
+                if isLarge, !summary.headline.isEmpty {
                     Text(summary.headline)
                         .font(.subheadline.weight(.semibold))
                         .lineLimit(1)
                 }
+
+                Divider()
 
                 if summary.items.isEmpty {
                     emptyState
@@ -44,39 +48,62 @@ struct DailySummaryWidgetView: View {
                     itemList(summary.items)
                 }
             } else {
+                Divider()
                 unavailableState
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(family == .systemLarge ? 16 : 12)
-        .containerBackground(.background, for: .widget)
+        .padding(isLarge ? WidgetTheme.paddingLarge : WidgetTheme.paddingMedium)
+        .containerBackground(for: .widget) {
+            WidgetTheme.background(colorScheme)
+        }
     }
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             Label("Gmail 日报", systemImage: "envelope.fill")
-                .font(.headline)
+                .font(WidgetTheme.headerFont)
             Spacer(minLength: 8)
             if let date = entry.summary?.generatedDate {
                 Text(Self.generatedAtFormatter.string(from: date))
-                    .font(.caption2)
+                    .font(WidgetTheme.metaFont)
                     .foregroundStyle(.secondary)
             }
         }
     }
 
+    /// 行数由 `ViewThatFits` 挑，不再写死 3 / 6。
+    ///
+    /// 这是必需的，不是锦上添花：行标题从 `caption` 提到 `subheadline` 之后每行都变高，
+    /// 去掉行间 Divider 省下的高度补不回来。Medium 只有约 158pt 可用，写死 3 行会溢出。
+    /// 候选按从高到矮排列，`ViewThatFits` 取第一个真正放得下的。
+    @ViewBuilder
     private func itemList(_ items: [DailySummaryItem]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(items.prefix(itemLimit)).indices, id: \.self) { index in
-                let item = items[index]
+        if isLarge {
+            ViewThatFits(in: .vertical) {
+                rows(items, count: 6)
+                rows(items, count: 5)
+                rows(items, count: 4)
+                rows(items, count: 3)
+                rows(items, count: 2)
+                rows(items, count: 1)
+            }
+        } else {
+            ViewThatFits(in: .vertical) {
+                rows(items, count: 3)
+                rows(items, count: 2)
+                rows(items, count: 1)
+            }
+        }
+    }
+
+    private func rows(_ items: [DailySummaryItem], count: Int) -> some View {
+        VStack(alignment: .leading, spacing: WidgetTheme.rowSpacing) {
+            ForEach(Array(items.prefix(count))) { item in
                 Link(destination: item.gmailURL) {
-                    WidgetItemRow(item: item, showTwoDetailLines: family == .systemLarge)
+                    WidgetItemRow(item: item, showTwoDetailLines: isLarge)
                 }
                 .buttonStyle(.plain)
-
-                if index < min(items.count, itemLimit) - 1 {
-                    Divider()
-                }
             }
         }
     }
@@ -111,18 +138,19 @@ private struct WidgetItemRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 9) {
+            // level 色条 —— 日报独有的分级标识，对应 [立即]/[今天]/[本周]/[可选]/[知悉]。
             RoundedRectangle(cornerRadius: 2)
                 .fill(item.level.tint)
                 .frame(width: 4, height: 31)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title)
-                    .font(.caption.weight(.semibold))
+                    .font(WidgetTheme.rowTitleFont)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                 if !item.detail.isEmpty {
                     Text(item.detail)
-                        .font(.caption2)
+                        .font(WidgetTheme.metaFont)
                         .foregroundStyle(.secondary)
                         .lineLimit(showTwoDetailLines ? 2 : 1)
                 }
@@ -130,11 +158,10 @@ private struct WidgetItemRow: View {
 
             Spacer(minLength: 4)
             Image(systemName: "arrow.up.right")
-                .font(.caption2)
+                .font(WidgetTheme.metaFont)
                 .foregroundStyle(.tertiary)
         }
         .contentShape(Rectangle())
-        .padding(.vertical, showTwoDetailLines ? 5 : 3)
     }
 }
 

@@ -8,7 +8,7 @@ struct SmallMailView: View {
     let generatedAt: Date?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: WidgetTheme.sectionSpacingSmall) {
             HStack {
                 titleView
                 Spacer()
@@ -33,7 +33,7 @@ struct SmallMailView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(12)
+        .padding(WidgetTheme.paddingSmall)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 

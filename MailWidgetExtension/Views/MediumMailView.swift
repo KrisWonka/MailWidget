@@ -12,7 +12,7 @@ struct MediumMailView: View {
     let generatedAt: Date?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: WidgetTheme.sectionSpacingMedium) {
             MailboxHeaderRow(title: resolved.title, accountID: resolved.accountID, scopeID: resolved.scopeID, unreadCount: resolved.unreadCount, generatedAt: generatedAt)
             Divider()
             if resolved.messages.isEmpty {
@@ -25,13 +25,13 @@ struct MediumMailView: View {
                 }
             }
         }
-        .padding(14)
+        .padding(WidgetTheme.paddingMedium)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
     private func rows(count: Int) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: WidgetTheme.rowSpacing) {
             ForEach(resolved.messages.prefix(count), id: \.message.id) { scoped in
                 MessageRow(message: scoped.message, accountID: scoped.accountID)
             }

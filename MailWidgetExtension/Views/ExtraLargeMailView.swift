@@ -12,7 +12,7 @@ struct ExtraLargeMailView: View {
     let generatedAt: Date?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: WidgetTheme.sectionSpacingLarge) {
             MailboxHeaderRow(
                 title: resolved.title,
                 accountID: resolved.accountID,
@@ -43,7 +43,7 @@ struct ExtraLargeMailView: View {
                 }
             }
         }
-        .padding(16)
+        .padding(WidgetTheme.paddingLarge)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
@@ -54,7 +54,7 @@ struct ExtraLargeMailView: View {
         let left = Array(messages.prefix(half))
         let right = Array(messages.dropFirst(half))
 
-        HStack(alignment: .top, spacing: 20) {
+        HStack(alignment: .top, spacing: WidgetTheme.columnSpacing) {
             column(left, noSnippetTail: noSnippetTail)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -70,7 +70,7 @@ struct ExtraLargeMailView: View {
     /// within one column.
     @ViewBuilder
     private func column(_ items: [ScopedMessage], noSnippetTail: Int) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: WidgetTheme.rowSpacing) {
             ForEach(Array(items.enumerated()), id: \.element.message.id) { index, scoped in
                 MessageRow(
                     message: scoped.message,

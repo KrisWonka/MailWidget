@@ -34,21 +34,21 @@ struct MessageRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(message.sender)
-                        .font(.subheadline.weight(.semibold))
+                        .font(WidgetTheme.rowTitleFont)
                         .lineLimit(1)
                     Spacer(minLength: 4)
                     Text(message.date, style: .relative)
-                        .font(.caption2)
+                        .font(WidgetTheme.metaFont)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
                 Text(message.subject)
-                    .font(.subheadline)
+                    .font(WidgetTheme.rowBodyFont)
                     .lineLimit(1)
                     .foregroundStyle(message.isRead ? .secondary : .primary)
                 if showsSnippet {
                     Text(message.snippet)
-                        .font(.caption2)
+                        .font(WidgetTheme.metaFont)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }

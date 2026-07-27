@@ -22,6 +22,7 @@
 		3021E3DE58AA561B2B3CB05E /* MediumMailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6EDAC024D476C582B03B29B2 /* MediumMailView.swift */; };
 		3C786CD8872274166EB364A3 /* EnvelopeIndexProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8CB5679FE0CFA875B1EAE6D /* EnvelopeIndexProvider.swift */; };
 		4169563D8D0F1D13D49A1984 /* DailySourceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BF87032FCE8205DA575F229 /* DailySourceSettings.swift */; };
+		47E80AFAFA28802F3ED7373E /* WidgetTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 932F3C08B1EE95FB4B6495BC /* WidgetTheme.swift */; };
 		48682AA941499718508CF682 /* DailySummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = E05A108026B255E06C70D2FF /* DailySummary.swift */; };
 		5BB16485882D6D6B31E623D0 /* RefreshScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B70D5909D0C1763E4A6BEC1 /* RefreshScheduler.swift */; };
 		5C089EA940CD35FAE03C04C8 /* MailAppOpener.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26224CDAC36AB3929721DB87 /* MailAppOpener.swift */; };
@@ -29,7 +30,9 @@
 		5F46CE6DDF70E031389E9CE3 /* TimelineProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DE74A98F31CCD26A92DF198 /* TimelineProvider.swift */; };
 		61ADF7BF772C8012421D0224 /* SnapshotStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDCB04196092022FE745724F /* SnapshotStoreTests.swift */; };
 		71E51D38FD2F00A96C3E888B /* MailDataProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73337E8E2F542AC6A054378 /* MailDataProvider.swift */; };
+		74200D39374FEBF03241FC02 /* WidgetTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 932F3C08B1EE95FB4B6495BC /* WidgetTheme.swift */; };
 		776B811F136F77AE7FA36BAE /* DailySummaryMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 385B04819CE550CDD0EE873D /* DailySummaryMigration.swift */; };
+		793EE71CC98B60AF5EB53C64 /* WidgetTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 932F3C08B1EE95FB4B6495BC /* WidgetTheme.swift */; };
 		7A6EE17156C5B0E92E847479 /* WidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = E18D0E4D05AA514257B94657 /* WidgetBundle.swift */; };
 		80F661C44A5961316A674704 /* PageIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6B172AB363D99BFB580A8D9 /* PageIntent.swift */; };
 		8C534497D97D78D53AE79E0F /* AppleScriptProviderErrorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A909B2997269CF45D4515CB /* AppleScriptProviderErrorTests.swift */; };
@@ -118,6 +121,7 @@
 		8A909B2997269CF45D4515CB /* AppleScriptProviderErrorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleScriptProviderErrorTests.swift; sourceTree = "<group>"; };
 		8BA140213264160E57F30A66 /* ConfigIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigIntent.swift; sourceTree = "<group>"; };
 		931A2C95A4007BF692217209 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		932F3C08B1EE95FB4B6495BC /* WidgetTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetTheme.swift; sourceTree = "<group>"; };
 		993082EF6F4596B3D5E4ED7A /* MailWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MailWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		9983DCF81054FDFA977B9753 /* LargeMailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LargeMailView.swift; sourceTree = "<group>"; };
 		A5EDC63C914022721D77E32D /* MessageRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageRow.swift; sourceTree = "<group>"; };
@@ -230,6 +234,7 @@
 				38CF91188D0E884714D81353 /* Models.swift */,
 				7B70D5909D0C1763E4A6BEC1 /* RefreshScheduler.swift */,
 				A72AB08EB755EB9AC4A8CE73 /* SnapshotStore.swift */,
+				932F3C08B1EE95FB4B6495BC /* WidgetTheme.swift */,
 			);
 			path = DataKit;
 			sourceTree = "<group>";
@@ -389,6 +394,7 @@
 				F9E088AD102E4DC6F4A83F04 /* SnapshotStore.swift in Sources */,
 				5F46CE6DDF70E031389E9CE3 /* TimelineProvider.swift in Sources */,
 				7A6EE17156C5B0E92E847479 /* WidgetBundle.swift in Sources */,
+				47E80AFAFA28802F3ED7373E /* WidgetTheme.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -411,6 +417,7 @@
 				5BB16485882D6D6B31E623D0 /* RefreshScheduler.swift in Sources */,
 				0FE1393E0F096BF1601DEF64 /* SettingsView.swift in Sources */,
 				1FF9945503710BE97EFAB7B0 /* SnapshotStore.swift in Sources */,
+				793EE71CC98B60AF5EB53C64 /* WidgetTheme.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -436,6 +443,7 @@
 				F43F608E74B4A4FA237B51EB /* SnapshotStore.swift in Sources */,
 				61ADF7BF772C8012421D0224 /* SnapshotStoreTests.swift in Sources */,
 				F3BB5EC58E2C1D001BC81A03 /* TestSupport.swift in Sources */,
+				74200D39374FEBF03241FC02 /* WidgetTheme.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
