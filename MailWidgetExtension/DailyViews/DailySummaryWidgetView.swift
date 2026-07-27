@@ -32,7 +32,7 @@ struct DailySummaryWidgetView: View {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.timeZone = TimeZone(identifier: "America/New_York")
-        formatter.dateFormat = "M月d日 HH:mm"
+        formatter.dateFormat = "M月d日"
         return formatter
     }()
 
@@ -92,7 +92,10 @@ struct DailySummaryWidgetView: View {
 
             detailButton
 
-            if let pageInfo = entry.brief?.pageInfo, pageInfo.totalPages > 1 {
+            // 与 MailWidget 的差别：这里只要有内容就显示翻页键，单页时读作 1/1。
+            // MailWidget 是 totalPages > 1 才显示，但日报条目本来就少（≤6），
+            // 藏起来会让人以为功能没做。到头时按钮是空操作，不会误跳。
+            if let pageInfo = entry.brief?.pageInfo {
                 pageControls(pageInfo)
             }
 
@@ -213,9 +216,31 @@ private struct DailyBriefCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            summaryBlock
-            mailBlock
+            // 标题与摘要整块可点，直接进 Mail —— 不再单独占一行去放"在邮件里打开"。
+            Link(destination: destination) {
+                summaryBlock
+            }
+            .buttonStyle(.plain)
+
+            // 关联到快照时才有这一行：真实发件人/主题/未读点/时间。它自带跳转逻辑
+            // （MailWidget 的 MessageRow），点它同样进 Mail。关联不到就什么都不显示，
+            // 上面那块已经可以点了。
+            if let message = brief.message, let accountID = brief.accountID {
+                MessageRow(message: message, accountID: accountID)
+                    .padding(.leading, 13)
+            }
         }
+    }
+
+    /// 始终落在 Mail.app 里：有 Message-ID 就打开那封信，否则打开该账户的邮箱。
+    private var destination: URL {
+        if let url = brief.mailURL {
+            return url
+        }
+        if let url = MailDeepLink.mailbox(accountID: mailAccountID), mailAccountID != nil {
+            return url
+        }
+        return brief.item.gmailURL
     }
 
     private var summaryBlock: some View {
@@ -241,44 +266,9 @@ private struct DailyBriefCard: View {
             }
 
             Spacer(minLength: 4)
-
-            Link(destination: brief.item.gmailURL) {
-                Image(systemName: "arrow.up.right")
-                    .font(WidgetTheme.metaFont)
-                    .foregroundStyle(.tertiary)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
         }
         .fixedSize(horizontal: false, vertical: true)
-    }
-
-    /// 三档，都落在 Mail.app 里：
-    /// 1. 快照关联到了 → 直接用 MailWidget 的 MessageRow，真实发件人/主题/未读点/时间
-    /// 2. 没关联到但有 Message-ID → 仍然给 `message://`，只是显示不出发件人和主题
-    /// 3. 连 Message-ID 都没有 → 打开该账户的邮箱
-    @ViewBuilder
-    private var mailBlock: some View {
-        if let message = brief.message, let accountID = brief.accountID {
-            MessageRow(message: message, accountID: accountID)
-                .padding(.leading, 13)
-        } else if let url = brief.mailURL {
-            mailLink(url, title: "在「邮件」里打开这封信", icon: "envelope")
-        } else if let url = MailDeepLink.mailbox(accountID: mailAccountID), mailAccountID != nil {
-            mailLink(url, title: "在「邮件」里查看", icon: "tray")
-        }
-    }
-
-    private func mailLink(_ url: URL, title: String, icon: String) -> some View {
-        Link(destination: url) {
-            Label(title, systemImage: icon)
-                .font(WidgetTheme.metaFont)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.leading, 13)
+        .contentShape(Rectangle())
     }
 }
 

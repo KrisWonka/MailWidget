@@ -19,7 +19,7 @@ struct DailyDetailView: View {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
         formatter.timeZone = TimeZone(identifier: "America/New_York")
-        formatter.dateFormat = "M月d日 HH:mm"
+        formatter.dateFormat = "M月d日"
         return formatter
     }()
 
@@ -125,101 +125,81 @@ private struct DetailBriefCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top, spacing: 10) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(brief.item.level.detailTint)
-                    .frame(width: 4)
-                    .frame(maxHeight: .infinity)
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(brief.item.title)
-                        .font(.headline)
-                    Text(brief.item.detail)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 8)
-
-                Link(destination: brief.item.gmailURL) {
-                    Image(systemName: "arrow.up.right")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-                .buttonStyle(.plain)
-                .help("在浏览器里打开 Gmail")
+            // 标题与摘要整块可点，直接进 Mail —— 不再单独放一行"在邮件里打开"。
+            Button {
+                openInMail()
+            } label: {
+                summaryBlock
             }
-            .fixedSize(horizontal: false, vertical: true)
+            .buttonStyle(.plain)
 
-            mailRow
+            // 关联到快照时才有：真实发件人/主题/未读点/时间，点它同样进 Mail。
+            if let message = brief.message {
+                mailRow(message)
+            }
         }
         .padding(.vertical, 6)
     }
 
-    /// 点击进 Mail.app。三档与 widget 一致：关联到就显示真实发件人/主题；没关联到但有
-    /// Message-ID 仍然能跳那封信；都没有才退到打开邮箱。任何一档都不去浏览器。
-    @ViewBuilder
-    private var mailRow: some View {
-        if let message = brief.message {
-            Button {
-                openInMail(message)
-            } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Circle()
-                        .fill(message.isRead ? Color.clear : Color.accentColor)
-                        .frame(width: 7, height: 7)
-                    Text(message.sender)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    Text(message.subject)
-                        .font(.subheadline)
-                        .foregroundStyle(message.isRead ? .secondary : .primary)
-                        .lineLimit(1)
-                    Spacer(minLength: 8)
-                    Text(message.date, style: .relative)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.leading, 14)
-        } else if let url = brief.mailURL {
-            Button {
-                let configuration = NSWorkspace.OpenConfiguration()
-                configuration.activates = true
-                NSWorkspace.shared.open(url, configuration: configuration)
-            } label: {
-                Label("在「邮件」里打开这封信", systemImage: "envelope")
-                    .font(.subheadline)
+    private var summaryBlock: some View {
+        HStack(alignment: .top, spacing: 10) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(brief.item.level.detailTint)
+                .frame(width: 4)
+                .frame(maxHeight: .infinity)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(brief.item.title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text(brief.item.detail)
+                    .font(.callout)
                     .foregroundStyle(.secondary)
-                    .contentShape(Rectangle())
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .buttonStyle(.plain)
-            .padding(.leading, 14)
-        } else {
-            Button {
-                MailAppOpener.openMailbox(accountName: nil)
-            } label: {
-                Label("在「邮件」里查看", systemImage: "tray")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.leading, 14)
+
+            Spacer(minLength: 8)
         }
+        .fixedSize(horizontal: false, vertical: true)
+        .contentShape(Rectangle())
     }
 
-    private func openInMail(_ message: MessageSummary) {
-        if let header = message.messageIdHeader,
-           let url = MailMessageLink.url(forMessageIdHeader: header) {
+    private func mailRow(_ message: MessageSummary) -> some View {
+        Button {
+            openInMail()
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Circle()
+                    .fill(message.isRead ? Color.clear : Color.accentColor)
+                    .frame(width: 7, height: 7)
+                Text(message.sender)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(message.subject)
+                    .font(.subheadline)
+                    .foregroundStyle(message.isRead ? .secondary : .primary)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text(message.date, style: .relative)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, 14)
+    }
+
+    /// 有 Message-ID 就打开那封信，否则打开邮箱。任何一档都不去浏览器。
+    private func openInMail() {
+        if let url = brief.mailURL {
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.activates = true
             NSWorkspace.shared.open(url, configuration: configuration)
             // 乐观已读：用户正要去 Mail 读它，未读点立刻消失，不必等下一轮抓取。
-            SnapshotStore.applyLocalReadMark(messageIdHeader: header)
+            if let header = brief.item.messageIdHeader {
+                SnapshotStore.applyLocalReadMark(messageIdHeader: header)
+            }
         } else {
             MailAppOpener.openMailbox(accountName: nil)
         }
