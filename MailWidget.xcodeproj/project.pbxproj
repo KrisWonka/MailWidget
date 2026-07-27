@@ -29,8 +29,11 @@
 		5C93BBE184A5A341568DA58D /* ExtraLargeMailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F83974332D3498145EB03F6 /* ExtraLargeMailView.swift */; };
 		5F46CE6DDF70E031389E9CE3 /* TimelineProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DE74A98F31CCD26A92DF198 /* TimelineProvider.swift */; };
 		61ADF7BF772C8012421D0224 /* SnapshotStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDCB04196092022FE745724F /* SnapshotStoreTests.swift */; };
+		6563D266A0803D548AF53E6A /* DailySourceInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 555D2FBB87F0611A6C54BD7A /* DailySourceInstaller.swift */; };
 		71E51D38FD2F00A96C3E888B /* MailDataProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73337E8E2F542AC6A054378 /* MailDataProvider.swift */; };
 		74200D39374FEBF03241FC02 /* WidgetTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 932F3C08B1EE95FB4B6495BC /* WidgetTheme.swift */; };
+		74FB4649AF9937458F36196E /* DailySummaryPromptTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED7E3D590F96D701868F0882 /* DailySummaryPromptTemplate.swift */; };
+		77151785CE33D5355A3A1D1C /* DailySummaryPromptTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED7E3D590F96D701868F0882 /* DailySummaryPromptTemplate.swift */; };
 		776B811F136F77AE7FA36BAE /* DailySummaryMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 385B04819CE550CDD0EE873D /* DailySummaryMigration.swift */; };
 		793EE71CC98B60AF5EB53C64 /* WidgetTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 932F3C08B1EE95FB4B6495BC /* WidgetTheme.swift */; };
 		7A6EE17156C5B0E92E847479 /* WidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = E18D0E4D05AA514257B94657 /* WidgetBundle.swift */; };
@@ -47,6 +50,7 @@
 		A653D93572C5FDAD4E95FB70 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C800B9BD89237BCC6C40D79 /* App.swift */; };
 		AA53416D14FD31FF09025ABE /* AppleScriptProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = F91C54A3B769570456E57841 /* AppleScriptProvider.swift */; };
 		ABE6299E2CE27D8DC10438B0 /* RefreshScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B70D5909D0C1763E4A6BEC1 /* RefreshScheduler.swift */; };
+		B122DACA2300A482858A6BF2 /* DailySummaryPromptTemplate.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED7E3D590F96D701868F0882 /* DailySummaryPromptTemplate.swift */; };
 		B8EE52969F282A12493F7D59 /* AppleScriptProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = F91C54A3B769570456E57841 /* AppleScriptProvider.swift */; };
 		B9E381F85DD5B0F22A410194 /* DailySourceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BF87032FCE8205DA575F229 /* DailySourceSettings.swift */; };
 		BC52C925525020BE1308FAEA /* IngestCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B311D3EF12C476AAA643399 /* IngestCommand.swift */; };
@@ -57,6 +61,7 @@
 		D1F85B472FDFFD46345F298C /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 931A2C95A4007BF692217209 /* OnboardingView.swift */; };
 		DEF6741388E882828257285F /* AppleScriptProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = F91C54A3B769570456E57841 /* AppleScriptProvider.swift */; };
 		ECB9E5D7AF4F5DFCD1CDCA33 /* EnvelopeIndexProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8CB5679FE0CFA875B1EAE6D /* EnvelopeIndexProvider.swift */; };
+		ED46E1999D844EABB9B276D4 /* DailySummaryPromptTemplateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D92EF6C280EC959A9B6AE0A6 /* DailySummaryPromptTemplateTests.swift */; };
 		EDF18680F1D058CF7A061363 /* RefreshScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B70D5909D0C1763E4A6BEC1 /* RefreshScheduler.swift */; };
 		EF26DFE37D808DCBB9B4A29D /* MailDeepLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = C6DBBA6AA400056D70FF5F99 /* MailDeepLink.swift */; };
 		F0FE3C525C4EF01D2BBF556F /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 38CF91188D0E884714D81353 /* Models.swift */; };
@@ -109,6 +114,7 @@
 		38CF91188D0E884714D81353 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		3B311D3EF12C476AAA643399 /* IngestCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngestCommand.swift; sourceTree = "<group>"; };
 		40D1C9E1DFBB94041959CD10 /* SharedComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedComponents.swift; sourceTree = "<group>"; };
+		555D2FBB87F0611A6C54BD7A /* DailySourceInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailySourceInstaller.swift; sourceTree = "<group>"; };
 		67D99A6EB3D9472545534704 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		6C800B9BD89237BCC6C40D79 /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
 		6EDAC024D476C582B03B29B2 /* MediumMailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediumMailView.swift; sourceTree = "<group>"; };
@@ -130,11 +136,13 @@
 		B8CB5679FE0CFA875B1EAE6D /* EnvelopeIndexProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnvelopeIndexProvider.swift; sourceTree = "<group>"; };
 		C6DBBA6AA400056D70FF5F99 /* MailDeepLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailDeepLink.swift; sourceTree = "<group>"; };
 		C73337E8E2F542AC6A054378 /* MailDataProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailDataProvider.swift; sourceTree = "<group>"; };
+		D92EF6C280EC959A9B6AE0A6 /* DailySummaryPromptTemplateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailySummaryPromptTemplateTests.swift; sourceTree = "<group>"; };
 		DAAE1D956B7E3D16AC85D17E /* DailySummaryWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailySummaryWidget.swift; sourceTree = "<group>"; };
 		E05A108026B255E06C70D2FF /* DailySummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailySummary.swift; sourceTree = "<group>"; };
 		E18D0E4D05AA514257B94657 /* WidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetBundle.swift; sourceTree = "<group>"; };
 		E6B172AB363D99BFB580A8D9 /* PageIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PageIntent.swift; sourceTree = "<group>"; };
 		EAB8C4DCFC2AA5B204802B1D /* ProviderProbeAndFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderProbeAndFactoryTests.swift; sourceTree = "<group>"; };
+		ED7E3D590F96D701868F0882 /* DailySummaryPromptTemplate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailySummaryPromptTemplate.swift; sourceTree = "<group>"; };
 		F10E013CB3A3C52B11C6D2A0 /* EnvelopeIndexProviderRealDataTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnvelopeIndexProviderRealDataTests.swift; sourceTree = "<group>"; };
 		F91C54A3B769570456E57841 /* AppleScriptProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleScriptProvider.swift; sourceTree = "<group>"; };
 		FDCB04196092022FE745724F /* SnapshotStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotStoreTests.swift; sourceTree = "<group>"; };
@@ -145,6 +153,7 @@
 			isa = PBXGroup;
 			children = (
 				8A909B2997269CF45D4515CB /* AppleScriptProviderErrorTests.swift */,
+				D92EF6C280EC959A9B6AE0A6 /* DailySummaryPromptTemplateTests.swift */,
 				B322827F305FD30D02693902 /* DailySummaryTests.swift */,
 				F10E013CB3A3C52B11C6D2A0 /* EnvelopeIndexProviderRealDataTests.swift */,
 				87DD20FEAEBA8EA1C70AAEE3 /* ModelsCodableTests.swift */,
@@ -184,6 +193,7 @@
 			children = (
 				6C800B9BD89237BCC6C40D79 /* App.swift */,
 				381FAF5A01C012017EEABCCF /* Assets.xcassets */,
+				555D2FBB87F0611A6C54BD7A /* DailySourceInstaller.swift */,
 				3B311D3EF12C476AAA643399 /* IngestCommand.swift */,
 				931A2C95A4007BF692217209 /* OnboardingView.swift */,
 				67D99A6EB3D9472545534704 /* SettingsView.swift */,
@@ -227,6 +237,7 @@
 				0BF87032FCE8205DA575F229 /* DailySourceSettings.swift */,
 				E05A108026B255E06C70D2FF /* DailySummary.swift */,
 				385B04819CE550CDD0EE873D /* DailySummaryMigration.swift */,
+				ED7E3D590F96D701868F0882 /* DailySummaryPromptTemplate.swift */,
 				8A2D3764F6AE838E4923E8BB /* DailySummaryStore.swift */,
 				B8CB5679FE0CFA875B1EAE6D /* EnvelopeIndexProvider.swift */,
 				26224CDAC36AB3929721DB87 /* MailAppOpener.swift */,
@@ -374,6 +385,7 @@
 				B9E381F85DD5B0F22A410194 /* DailySourceSettings.swift in Sources */,
 				CC3AFCB690C2569B0F96DE1B /* DailySummary.swift in Sources */,
 				08657F4BE3665AECF8CA7690 /* DailySummaryMigration.swift in Sources */,
+				B122DACA2300A482858A6BF2 /* DailySummaryPromptTemplate.swift in Sources */,
 				0EE2C898E950C618410DD95A /* DailySummaryStore.swift in Sources */,
 				07ABDB2A8AA2E8DDD7963805 /* DailySummaryWidget.swift in Sources */,
 				A261D97AEF20E0C8BDCF0A9D /* DailySummaryWidgetView.swift in Sources */,
@@ -404,9 +416,11 @@
 			files = (
 				A653D93572C5FDAD4E95FB70 /* App.swift in Sources */,
 				AA53416D14FD31FF09025ABE /* AppleScriptProvider.swift in Sources */,
+				6563D266A0803D548AF53E6A /* DailySourceInstaller.swift in Sources */,
 				4169563D8D0F1D13D49A1984 /* DailySourceSettings.swift in Sources */,
 				48682AA941499718508CF682 /* DailySummary.swift in Sources */,
 				776B811F136F77AE7FA36BAE /* DailySummaryMigration.swift in Sources */,
+				74FB4649AF9937458F36196E /* DailySummaryPromptTemplate.swift in Sources */,
 				FD8D12944FB15A9B56402897 /* DailySummaryStore.swift in Sources */,
 				ECB9E5D7AF4F5DFCD1CDCA33 /* EnvelopeIndexProvider.swift in Sources */,
 				BC52C925525020BE1308FAEA /* IngestCommand.swift in Sources */,
@@ -430,6 +444,8 @@
 				0978A00A5930F823A2F5E551 /* DailySourceSettings.swift in Sources */,
 				94C09D26A789A52F20A2915D /* DailySummary.swift in Sources */,
 				10E320129943C1BCBC142794 /* DailySummaryMigration.swift in Sources */,
+				77151785CE33D5355A3A1D1C /* DailySummaryPromptTemplate.swift in Sources */,
+				ED46E1999D844EABB9B276D4 /* DailySummaryPromptTemplateTests.swift in Sources */,
 				F6F2D498F790A8CFE3F918CF /* DailySummaryStore.swift in Sources */,
 				F232808E9656FE042040D6CE /* DailySummaryTests.swift in Sources */,
 				94AAD02E434D395D3AD95861 /* EnvelopeIndexProvider.swift in Sources */,
