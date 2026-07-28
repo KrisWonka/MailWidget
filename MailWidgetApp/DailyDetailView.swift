@@ -69,6 +69,19 @@ struct DailyDetailView: View {
 
             Spacer(minLength: 8)
 
+            // 通往「日报源」设置（Codex / Claude 切换、一键添加定时任务）。
+            // 本 app 是 LSUIElement：没有应用菜单，⌘, 打不开设置，此前唯一入口是
+            // 菜单栏图标里的 Settings… —— 而用户点 app 图标弹出来的是这个窗口，
+            // 会先在这里找。
+            SettingsLink {
+                Label("日报源设置", systemImage: "gearshape")
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("选择日报由 Codex 还是 Claude 生成，或一键添加定时任务")
+
             Button {
                 reload()
             } label: {
@@ -76,6 +89,7 @@ struct DailyDetailView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
+            .help("重新读取日报")
 
             Text("\(brief?.unreadCount ?? 0)")
                 .font(.title2.weight(.bold))
