@@ -64,7 +64,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         RefreshScheduler.shared.start()
         if SnapshotStore.load() == nil {
             showOnboardingWindow()
+            return
         }
+
+        // 冷启动时给出可见反馈。本 app 是 LSUIElement：没有 Dock 图标、没有窗口，
+        // 在 Spotlight 里点它如果什么都不弹，看上去就是"打不开"。
+        //
+        // 这里**不能**靠 `NSApp.isActive` 或 `applicationDidBecomeActive` 判断是不是
+        // 用户主动打开的：LSUIElement app 被 `open` 拉起时 macOS 根本不会激活它
+        // （实测冷启动后 7 秒最前台仍是别的 app、自身 frontmost 为 false），
+        // 那两条路都永远不触发。前两次修复都栽在这个不成立的前提上。
+        //
+        // 可靠的区分是启动时那个 kAEOpenApplication 事件带没带
+        // `keyAELaunchedAsLogInItem`——只有登录项启动才有。
+        if !isLaunchedAsLoginItem {
+            showDailyDetailWindow()
+        }
+    }
+
+    /// 是否由登录项拉起。`currentAppleEvent` 在 didFinishLaunching 期间正是那个
+    /// kAEOpenApplication 事件。
+    private var isLaunchedAsLoginItem: Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent,
+              event.eventID == kAEOpenApplication else {
+            return false
+        }
+        return event.paramDescriptor(forKeyword: keyAEPropData)?
+            .enumCodeValue == keyAELaunchedAsLogInItem
+    }
+
+    /// app 已在运行时用户又点了它（Spotlight / Finder / Dock）。LSUIElement 应用没有
+    /// 窗口可以恢复，不接这个事件就等于"点了没反应"—— 合并前 GmailDailyWidget 是普通
+    /// 窗口 app，点开必然有窗口，合并到菜单栏宿主后这个行为丢了。
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        if !hasVisibleWindows {
+            showDailyDetailWindow()
+        }
+        return true
     }
 
     /// Both the class and the ID for the "open URL" Apple Event are the four-char
