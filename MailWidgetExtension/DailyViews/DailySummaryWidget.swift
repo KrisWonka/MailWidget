@@ -14,10 +14,15 @@ struct DailySummaryEntry: TimelineEntry {
     /// 打开 Mail 里那个邮箱，而不是掉进浏览器。
     let mailAccountID: String?
 
-    init(date: Date, brief: DailyBrief?, mailAccountID: String? = nil) {
+    /// `DailyRegenerator.isRegenerating()` 的结果（15 分钟自动过期）。header 的
+    /// ↻ 按钮据此换成「生成中…」文案。
+    let isRegenerating: Bool
+
+    init(date: Date, brief: DailyBrief?, mailAccountID: String? = nil, isRegenerating: Bool = false) {
         self.date = date
         self.brief = brief
         self.mailAccountID = mailAccountID
+        self.isRegenerating = isRegenerating
     }
 }
 
@@ -27,7 +32,10 @@ struct DailySummaryProvider: TimelineProvider {
     }
 
     func getSnapshot(in context: Context, completion: @escaping (DailySummaryEntry) -> Void) {
-        completion(makeEntry(family: context.family) ?? DailySummaryEntry(date: .now, brief: .placeholder))
+        completion(
+            makeEntry(family: context.family)
+                ?? DailySummaryEntry(date: .now, brief: .placeholder, isRegenerating: DailyRegenerator.isRegenerating())
+        )
     }
 
     /// 日报是推送式的：来源 agent 写完 latest.json 会主动调 `--ingest`，由它触发
@@ -35,7 +43,7 @@ struct DailySummaryProvider: TimelineProvider {
     /// 永远停在旧内容上。
     func getTimeline(in context: Context, completion: @escaping (Timeline<DailySummaryEntry>) -> Void) {
         let entry = makeEntry(family: context.family)
-            ?? DailySummaryEntry(date: .now, brief: nil)
+            ?? DailySummaryEntry(date: .now, brief: nil, isRegenerating: DailyRegenerator.isRegenerating())
         let nextFallbackRefresh = Calendar.current.date(byAdding: .hour, value: 4, to: .now) ?? .now
         completion(Timeline(entries: [entry], policy: .after(nextFallbackRefresh)))
     }
@@ -51,7 +59,12 @@ struct DailySummaryProvider: TimelineProvider {
             .first { $0.email == DailySummaryConstants.expectedMailbox }?
             .id
 
-        return DailySummaryEntry(date: .now, brief: brief, mailAccountID: accountID)
+        return DailySummaryEntry(
+            date: .now,
+            brief: brief,
+            mailAccountID: accountID,
+            isRegenerating: DailyRegenerator.isRegenerating()
+        )
     }
 
     /// 每一「份」= 标题 + 几行话总结 + 一整行真实邮件，约 80pt。

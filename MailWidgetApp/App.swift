@@ -178,6 +178,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             MailAppOpener.openMailbox(accountName: accountName)
         case "dailydetail":
             showDailyDetailWindow()
+        case "regeneratedaily":
+            DailyRegenerator.regenerate()
         case "markallread":
             guard let scope = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "scope" })?.value else { return }

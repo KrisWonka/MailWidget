@@ -12,3 +12,6 @@ SESSION_LOG.md
 
 # install.sh 的构建输出
 .build/
+
+# Coverage artifacts
+default.profraw

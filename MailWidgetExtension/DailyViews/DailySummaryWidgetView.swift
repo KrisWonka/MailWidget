@@ -88,6 +88,8 @@ struct DailySummaryWidgetView: View {
                     .lineLimit(1)
             }
 
+            regenerateControl
+
             Spacer(minLength: 4)
 
             detailButton
@@ -102,6 +104,28 @@ struct DailySummaryWidgetView: View {
             Text("\(entry.brief?.unreadCount ?? 0)")
                 .font(.title2.weight(.bold))
                 .foregroundStyle((entry.brief?.unreadCount ?? 0) > 0 ? Color.accentColor : Color.secondary)
+        }
+    }
+
+    /// 重新触发当前日报源。走 `mailwidget://regenerateDaily`，由 AppDelegate 转发给
+    /// `DailyRegenerator.regenerate()`。生成中时原地换成「生成中…」文案而不是隐藏——
+    /// widget 不支持动画，静态文案是唯一能表达"进行中"的办法。两态共用
+    /// `WidgetTheme.metaFont`，图标换文字时这一格宽度不跳。
+    @ViewBuilder
+    private var regenerateControl: some View {
+        if entry.isRegenerating {
+            Text("生成中…")
+                .font(WidgetTheme.metaFont)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        } else {
+            Link(destination: URL(string: "mailwidget://regenerateDaily")!) {
+                Image(systemName: "arrow.clockwise")
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .font(WidgetTheme.metaFont)
+            .foregroundStyle(.secondary)
         }
     }
 
