@@ -125,8 +125,13 @@ enum DailySummaryPromptTemplate {
     surrounding angle brackets removed and no leading or trailing whitespace, e.g. \
     `20260726160340.13cbcf6413d3d6b2@mail.joinhandshake.com`. For a thread, use the most recent \
     message in it. Omit the key entirely when it cannot be retrieved — never emit an empty \
-    string, a null, or a value still containing `<` or `>`. The widget uses it to open the \
-    message directly in Apple Mail; rows without it fall back to opening Gmail in a browser.
+    string, a null, or a value still containing `<` or `>`. Retrieving this header is a \
+    required step, not an optional enrichment: for every selected item, fetch the underlying \
+    message's metadata headers (Gmail message get with format=metadata including the \
+    Message-ID header) and copy the value before writing the payload. Omission is acceptable \
+    only when that metadata call itself fails for the specific message. The widget uses it to \
+    open the message directly in Apple Mail; rows without it fall back to opening Gmail in a \
+    browser.
 
     On a verified zero-message run, publish `items: []` with a short Chinese `headline` saying \
     there is no new mail requiring attention.
