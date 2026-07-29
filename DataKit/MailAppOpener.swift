@@ -20,6 +20,20 @@ import Foundation
 import AppKit
 #endif
 
+/// 阶段三 review 批 1 High #1 修复：`MailAppOpener.markAllRead` 曾经的入参是
+/// `accountNames: [String]?`，`nil` 表示"全部账户"。调用方（App.swift 的 URL
+/// handler）解析 scope 字符串失败时也会走到同一个 `nil`——于是任何无法识别的垃圾
+/// scope 都会被静默解释成"标记全部账户已读"，是一个 fail-open 的安全问题。
+///
+/// 这个枚举消灭了 nil 哨兵：没有能表示"未指定"的分支，调用方要么明确知道是
+/// `.allAccounts`，要么必须给出一份（可能为空的）账户名列表；`.accounts([])`
+/// 是显式的 no-op，不是"退化成全部账户"。顶层类型（不嵌在 `MailAppOpener` 里）是
+/// 因为宿主 app `App.swift` 的 scope 解析函数也要直接用它做返回值类型。
+enum MarkAllReadTarget {
+    case allAccounts
+    case accounts([String])
+}
+
 enum MailAppOpener {
 
     /// 打开某一封邮件。`messageIdHeader` 不含尖括号（和 MessageSummary.messageIdHeader
@@ -133,18 +147,23 @@ enum MailAppOpener {
     }
 
     /// 契约 11 — 一键"全部已读"的真标记（对应 `SnapshotStore.applyLocalMarkAllRead`
-    /// 那边的乐观清零）。`accountNames` 为 nil 时对每个账户都做；否则只对列出的账户名
-    /// 逐个做。每个账户内部用 `set read status of every message of targetMailbox to
-    /// true` 一条 Apple Event 让 Mail 内部批量执行，不是我们这边逐封邮件发一次 AE
-    /// （性能同 openMailbox 的原则：批量优于循环调用）。
+    /// 那边的乐观清零）。`.allAccounts` 对每个账户都做；`.accounts(names)` 只对列出的
+    /// 账户名逐个做，`.accounts([])` 是 no-op（调用方本该在解析 scope 失败时直接不
+    /// 调用这个函数，但这里再兜底一层，双保险）。每个账户内部用
+    /// `set read status of every message of targetMailbox to true` 一条 Apple Event
+    /// 让 Mail 内部批量执行，不是我们这边逐封邮件发一次 AE（性能同 openMailbox 的
+    /// 原则：批量优于循环调用）。
     ///
     /// 这是纯后台动作：不 activate、不 reopen——用户点的是"全部已读"，不代表想看到
     /// Mail 窗口跳出来抢焦点。大邮箱（几千封未读，本机就有账户是这个量级）Mail 可能
     /// 要在后台忙一阵子才处理完，这是预期行为，不是卡住。
-    static func markAllRead(accountNames: [String]?) {
+    static func markAllRead(_ target: MarkAllReadTarget) {
         #if canImport(AppKit)
+        if case .accounts(let names) = target, names.isEmpty {
+            return
+        }
         DispatchQueue.global(qos: .userInitiated).async {
-            guard let script = NSAppleScript(source: markAllReadScriptSource(accountNames: accountNames)) else {
+            guard let script = NSAppleScript(source: markAllReadScriptSource(for: target)) else {
                 return
             }
             var errorInfo: NSDictionary?
@@ -157,9 +176,13 @@ enum MailAppOpener {
 
     /// `markAllRead` 用的 AppleScript 源。收件箱名字兼容 "INBOX"/"Inbox"，跟
     /// `scriptSource(accountName:)` 里的双兜底一致。非 private 是为了让 harness/单测
-    /// 能直接 dump 出来喂给 osacompile 验证语法，不用真执行（会弹自动化权限框）。
-    static func markAllReadScriptSource(accountNames: [String]?) -> String {
-        guard let accountNames, !accountNames.isEmpty else {
+    /// 能直接 dump 出来喂给 osacompile 验证语法，不用真执行（会弹自动化权限框）——
+    /// 三个分支（`.allAccounts` / `.accounts(单个)` / `.accounts([])`）都要能单独
+    /// dump 出语法合法的脚本，所以空列表分支也返回一段无害但合法的脚本，而不是
+    /// 假设调用方已经在外层挡掉了这个形状。
+    static func markAllReadScriptSource(for target: MarkAllReadTarget) -> String {
+        switch target {
+        case .allAccounts:
             return """
             tell application "Mail"
                 repeat with targetAccount in every account
@@ -175,25 +198,32 @@ enum MailAppOpener {
                 end repeat
             end tell
             """
-        }
-        let literalList = accountNames
-            .map { "\"\(Self.escapeForAppleScriptLiteral($0))\"" }
-            .joined(separator: ", ")
-        return """
-        tell application "Mail"
-            repeat with acctName in {\(literalList)}
-                try
-                    set targetAccount to account acctName
-                    set targetMailbox to missing value
+        case .accounts(let names):
+            guard !names.isEmpty else {
+                return """
+                tell application "Mail"
+                end tell
+                """
+            }
+            let literalList = names
+                .map { "\"\(Self.escapeForAppleScriptLiteral($0))\"" }
+                .joined(separator: ", ")
+            return """
+            tell application "Mail"
+                repeat with acctName in {\(literalList)}
                     try
-                        set targetMailbox to mailbox "INBOX" of targetAccount
-                    on error
-                        set targetMailbox to mailbox "Inbox" of targetAccount
+                        set targetAccount to account acctName
+                        set targetMailbox to missing value
+                        try
+                            set targetMailbox to mailbox "INBOX" of targetAccount
+                        on error
+                            set targetMailbox to mailbox "Inbox" of targetAccount
+                        end try
+                        set read status of every message of targetMailbox to true
                     end try
-                    set read status of every message of targetMailbox to true
-                end try
-            end repeat
-        end tell
-        """
+                end repeat
+            end tell
+            """
+        }
     }
 }

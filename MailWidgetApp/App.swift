@@ -187,25 +187,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // clear), then the real batch mark-read in Mail — same
             // optimistic-then-reconcile shape as the single-message read mark above.
             SnapshotStore.applyLocalMarkAllRead(scopeID: scope)
-            MailAppOpener.markAllRead(accountNames: Self.accountNames(forScope: scope))
+            // Batch-1 review fix (High #1): this endpoint is reachable from any
+            // local process or web page that can open a `mailwidget://` URL, so an
+            // unrecognized scope must fail closed — do nothing — rather than fall
+            // back to "every account" the way the old `accountNames(forScope:)`
+            // (which folded parse failure and "all" into the same `nil`) did.
+            guard let target = Self.markAllReadTarget(forScope: scope) else {
+                NSLog("%@", "MailWidget: markAllRead rejected for unrecognized scope \"\(scope)\" (fail-closed)")
+                return
+            }
+            MailAppOpener.markAllRead(target)
         default:
             break
         }
     }
 
-    /// `scope` uses the same string format as `MailScopeEntity` on the widget
-    /// side ("all" / "account:<id>") — that type lives in the extension target,
-    /// not this one, so the "account:" prefix is matched here as a literal
-    /// rather than shared. `"all"` (or anything else that isn't "account:...")
-    /// maps to nil, meaning "every account" to `MailAppOpener.markAllRead`.
-    private static func accountNames(forScope scope: String) -> [String]? {
-        let accountPrefix = "account:"
-        guard scope.hasPrefix(accountPrefix) else { return nil }
-        let accountID = String(scope.dropFirst(accountPrefix.count))
+    /// Fail-closed scope → `MarkAllReadTarget` resolution. `scope` uses the same
+    /// string format as `MailScopeEntity` on the widget side ("all" / "account:<id>")
+    /// — that type lives in the extension target, not this one, so `DataKit`'s
+    /// `MailScope` constants (compiled into both targets) are the shared source of
+    /// truth instead of a second copy of the literals here.
+    ///
+    /// Returns nil — meaning "do nothing" — for anything that isn't exactly
+    /// `MailScope.all`, or an `account:`-prefixed scope that fails to resolve to a
+    /// real account in the current snapshot. VIP/Flagged and any other garbage
+    /// scope are deliberately not handled here (`MailDeepLink.supportsMarkAllRead`
+    /// never offers the button for them on the widget side either), and an
+    /// `account:` scope with an ID that no longer exists in the snapshot must not
+    /// silently widen to "every account".
+    private static func markAllReadTarget(forScope scope: String) -> MarkAllReadTarget? {
+        if scope == MailScope.all {
+            return .allAccounts
+        }
+        guard scope.hasPrefix(MailScope.accountPrefix) else { return nil }
+        let accountID = String(scope.dropFirst(MailScope.accountPrefix.count))
         guard let name = SnapshotStore.load()?.accounts.first(where: { $0.id == accountID })?.name else {
             return nil
         }
-        return [name]
+        return .accounts([name])
     }
 
     /// Recovers the bare RFC Message-ID from a `message://%3C...%3E` deep link:

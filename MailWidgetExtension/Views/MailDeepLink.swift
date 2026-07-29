@@ -31,7 +31,7 @@ enum MailDeepLink {
     /// cross-cutting views of messages that really live in other mailboxes, so
     /// the header's "mark all read" button doesn't offer itself there.
     static func supportsMarkAllRead(scopeID: String) -> Bool {
-        scopeID == MailScopeEntity.allScopeID || scopeID.hasPrefix(MailScopeEntity.accountPrefix)
+        scopeID == MailScope.all || scopeID.hasPrefix(MailScope.accountPrefix)
     }
 
     /// Routes through the host app, which does the actual optimistic snapshot

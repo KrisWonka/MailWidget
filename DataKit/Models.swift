@@ -16,6 +16,21 @@ enum SharedConstants {
     static let defaultRefreshIntervalMinutes: Double = 2
 }
 
+/// scope 标识字符串的唯一权威来源。`SnapshotStore.applyLocalMarkAllRead(scopeID:)`、
+/// 宿主 app `App.swift` 里"scope 字符串 → MarkAllReadTarget"的解析、以及 widget
+/// extension 的 `MailScopeEntity`（该类型自己再 `= MailScope.xxx` 重新导出一遍，
+/// 因为它活在 extension target，看不到 App.swift 那份）三处必须永远用同一套值。
+///
+/// 阶段三 review 批 1 High #1 修复：在这之前 "all" / "account:" 是分别硬编码在至少
+/// 三个文件里的字面量，没有单一权威——这正是 App.swift 那个"无法识别的 scope 走进
+/// nil 分支、nil 又被解释成『全部账户』"的 fail-open bug 能悄悄发生的土壤。
+enum MailScope {
+    static let all = "all"
+    static let vip = "vip"
+    static let flagged = "flagged"
+    static let accountPrefix = "account:"
+}
+
 /// 一次快照 = 某个时间点抓取到的全部账户/邮箱/邮件状态。
 struct MailSnapshot: Codable {
     /// 抓取时间；frontend 据此渲染"数据过期"态（> 10 min 视为过期）。

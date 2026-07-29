@@ -6,10 +6,15 @@ import WidgetKit
 /// dynamically from the most recent `MailSnapshot` (contract 4) — never hardcoded,
 /// since VIP/Flagged mailboxes may not exist in every snapshot.
 struct MailScopeEntity: AppEntity {
-    static let allScopeID = "all"
-    static let vipScopeID = "vip"
-    static let flaggedScopeID = "flagged"
-    static let accountPrefix = "account:"
+    // Sourced from DataKit's `MailScope` (single source of truth shared with the
+    // host app's `App.swift`, which can't see this extension-only type) rather
+    // than repeating the literals here — batch-1 review fix for the fail-open
+    // markAllRead bug: App.swift's scope parsing and this entity's IDs must
+    // never be able to drift apart.
+    static let allScopeID = MailScope.all
+    static let vipScopeID = MailScope.vip
+    static let flaggedScopeID = MailScope.flagged
+    static let accountPrefix = MailScope.accountPrefix
 
     let id: String
     let name: String
