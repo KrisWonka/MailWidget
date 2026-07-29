@@ -11,9 +11,34 @@
 import AppKit
 import SwiftUI
 
+/// 详情窗口的可观察状态，由 `AppDelegate` 持有单例并注入。
+///
+/// 为什么不让 `DailyDetailView` 自己 `@State`/`@StateObject` 一份：宿主窗口是复用的
+/// （`AppDelegate.dailyDetailWindow` 单例 + `isReleasedWhenClosed = false`），
+/// `NSHostingView(rootView:)` 只在窗口第一次创建时实例化一次 —— 视图自身的
+/// `.task`/`.onAppear` 只会在这个 rootView 第一次出现于视图树时跑一次，第二次
+/// `makeKeyAndOrderFront` 并不会让它们重新触发，窗口会一直显示首次打开时读到的旧日报。
+/// `AppDelegate.showDailyDetailWindow()` 才是"要把这个窗口给用户看"的唯一入口
+/// （详情按钮 / Dock 图标 reopen / 冷启动首次），所以让它在每次调用时都主动
+/// `reload()` 这个共享的 model，不依赖 AppKit key/active 通知的时序。
+final class DailyDetailModel: ObservableObject {
+    @Published private(set) var brief: DailyBrief?
+    @Published private(set) var statusMessage = "正在读取日报…"
+
+    func reload() {
+        do {
+            let summary = try DailySummaryStore().load()
+            brief = DailyBrief.resolve(summary: summary, snapshot: SnapshotStore.load())
+            statusMessage = "日报已载入"
+        } catch {
+            brief = nil
+            statusMessage = error.localizedDescription
+        }
+    }
+}
+
 struct DailyDetailView: View {
-    @State private var brief: DailyBrief?
-    @State private var statusMessage = "正在读取日报…"
+    @ObservedObject var model: DailyDetailModel
 
     private static let generatedAtFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -28,7 +53,7 @@ struct DailyDetailView: View {
             header
             Divider()
 
-            if let brief {
+            if let brief = model.brief {
                 if !brief.headline.isEmpty {
                     Text(brief.headline)
                         .font(.callout)
@@ -46,14 +71,13 @@ struct DailyDetailView: View {
                 ContentUnavailableView(
                     "暂无 Gmail 日报",
                     systemImage: "envelope.badge",
-                    description: Text(statusMessage)
+                    description: Text(model.statusMessage)
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .padding(WidgetTheme.paddingLarge + 8)
         .frame(minWidth: 520, minHeight: 460)
-        .task { reload() }
     }
 
     private var header: some View {
@@ -61,7 +85,7 @@ struct DailyDetailView: View {
             Label("Gmail 日报", systemImage: "envelope.fill")
                 .font(.title3.weight(.semibold))
 
-            if let date = brief?.generatedDate {
+            if let date = model.brief?.generatedDate {
                 Text(Self.generatedAtFormatter.string(from: date))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -83,7 +107,7 @@ struct DailyDetailView: View {
             .help("选择日报由 Codex 还是 Claude 生成，或一键添加定时任务")
 
             Button {
-                reload()
+                model.reload()
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
@@ -91,9 +115,9 @@ struct DailyDetailView: View {
             .foregroundStyle(.secondary)
             .help("重新读取日报")
 
-            Text("\(brief?.unreadCount ?? 0)")
+            Text("\(model.brief?.unreadCount ?? 0)")
                 .font(.title2.weight(.bold))
-                .foregroundStyle((brief?.unreadCount ?? 0) > 0 ? Color.accentColor : Color.secondary)
+                .foregroundStyle((model.brief?.unreadCount ?? 0) > 0 ? Color.accentColor : Color.secondary)
         }
     }
 
@@ -118,17 +142,6 @@ struct DailyDetailView: View {
             description: Text("新的行动项会在下次日报后出现。")
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func reload() {
-        do {
-            let summary = try DailySummaryStore().load()
-            brief = DailyBrief.resolve(summary: summary, snapshot: SnapshotStore.load())
-            statusMessage = "日报已载入"
-        } catch {
-            brief = nil
-            statusMessage = error.localizedDescription
-        }
     }
 }
 
@@ -204,7 +217,15 @@ private struct DetailBriefCard: View {
         .padding(.leading, 14)
     }
 
-    /// 有 Message-ID 就打开那封信，否则打开邮箱。任何一档都不去浏览器。
+    /// 与 widget 侧 `DailyBriefCard.destination` 同一套三级兜底：mailURL → 该邮箱账户 →
+    /// `gmailURL` 浏览器兜底。不再无差别 `openMailbox(accountName: nil)`——那只是把 Mail
+    /// 激活到"不知道哪个邮箱"，正是用户反馈的"跳到 Mail 里不知道哪个"。
+    ///
+    /// `brief.accountID`（关联到快照时的那个账户）几乎总是和 `mailURL` 同时为
+    /// 空/非空——两者都依赖同一个 `item.messageIdHeader`（参见 `DailyBrief.resolve`），
+    /// 所以真正会命中的兜底其实是第二档：解析出这份日报固定所属的邮箱账户
+    /// （`DailySummaryConstants.expectedMailbox`），与 widget 的 `DailySummaryProvider
+    /// .makeEntry()` 解析 `mailAccountID` 用的是同一个账户、同一种查法。
     private func openInMail() {
         if let url = brief.mailURL {
             let configuration = NSWorkspace.OpenConfiguration()
@@ -214,9 +235,20 @@ private struct DetailBriefCard: View {
             if let header = brief.item.messageIdHeader {
                 SnapshotStore.applyLocalReadMark(messageIdHeader: header)
             }
-        } else {
-            MailAppOpener.openMailbox(accountName: nil)
+            return
         }
+
+        let snapshot = SnapshotStore.load()
+        let accountID = brief.accountID
+            ?? snapshot?.accounts.first(where: { $0.email == DailySummaryConstants.expectedMailbox })?.id
+        if let accountID, let accountName = snapshot?.accounts.first(where: { $0.id == accountID })?.name {
+            MailAppOpener.openMailbox(accountName: accountName)
+            return
+        }
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = true
+        NSWorkspace.shared.open(brief.item.gmailURL, configuration: configuration)
     }
 }
 

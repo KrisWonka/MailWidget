@@ -39,6 +39,11 @@ struct MailWidgetApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var onboardingWindow: NSWindow?
     private var dailyDetailWindow: NSWindow?
+    /// 与 `dailyDetailWindow` 一样是单例，且必须比它活得一样久：窗口的
+    /// `NSHostingView(rootView:)` 只在窗口首次创建时实例化一次，之后每次
+    /// `showDailyDetailWindow()` 复用同一个窗口——如果 model 换成局部变量，第二次
+    /// 打开时读到的还是第一次那份（可能缺 messageIdHeader 的）旧日报。
+    private let dailyDetailModel = DailyDetailModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // P0 fix: SwiftUI's `App`/`Scene` lifecycle (MenuBarExtra included) installs
@@ -242,7 +247,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// 日报详细页面。宿主是 LSUIElement（无 Dock 图标），所以窗口手工创建，
     /// 与 Onboarding 同一套做法；`isReleasedWhenClosed = false` 让它可以反复打开。
+    ///
+    /// `dailyDetailModel.reload()` 放在最前面、每次调用本函数都无条件跑一次——不依赖
+    /// AppKit 的 key/active 通知时序。这是本函数（详情按钮 / Dock 图标 reopen / 冷启动
+    /// 首次）作为"要把这个窗口给用户看"的唯一入口，天然覆盖了"窗口复用、第二次打开"
+    /// 这个此前会显示陈旧日报（缺 messageIdHeader）的场景。
     private func showDailyDetailWindow() {
+        dailyDetailModel.reload()
         if dailyDetailWindow == nil {
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 560, height: 560),
@@ -253,7 +264,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             window.title = "Gmail 日报"
             window.isReleasedWhenClosed = false
             window.center()
-            window.contentView = NSHostingView(rootView: DailyDetailView())
+            window.contentView = NSHostingView(rootView: DailyDetailView(model: dailyDetailModel))
             dailyDetailWindow = window
         }
         NSApp.activate(ignoringOtherApps: true)
