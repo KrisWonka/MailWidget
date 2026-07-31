@@ -4,7 +4,8 @@
 // 与 widget 的关系是"同一套版式，去掉尺寸约束"：
 // - 结构完全一致：header → 分割线 → 总体总结 → 分割线 → 一份一份、之间分割
 // - 去掉翻页与 ViewThatFits 降级 —— 这里能滚动，所有条目一次全展示、摘要不截断
-// - 邮件那一行同样显示未读圆点 / 发件人 / 主题 / 相对时间，点击进 Mail.app
+// - 未读圆点画在标题行行首，点击整块进 Mail.app（原来单独一行的发件人 / 原始
+//   主题 / 相对时间已删除，见 DetailBriefCard 的注释）
 //
 // 由 widget header 上那个小按钮经 `mailwidget://dailyDetail` 唤起。
 
@@ -145,26 +146,23 @@ struct DailyDetailView: View {
     }
 }
 
-/// 与 widget 的 DailyBriefCard 同构：level 色条 + 标题 + 完整摘要，下面接那封信。
+/// 与 widget 的 DailyBriefCard 同构：level 色条 + 未读点 + 标题 + 完整摘要。
 /// 差别只是这里不截断摘要、也不降级行数。
+///
+/// 原来下面还接一行发件人/原始主题/相对时间（同一封信的真实邮件信息），已删除——
+/// 这类邮件大量来自 Canvas/Instructure 之类通知网关，发件人显示名恒为某个人名、
+/// 主题恒为模板套话，跟 AI 中文标题并排看着像挂错了邮件，纯属噪音。未读信号没有
+/// 丢，挪到了标题行行首的圆点；点击整块仍然进 Mail.app，逻辑见 `openInMail()`。
 private struct DetailBriefCard: View {
     let brief: DailyBriefItem
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // 标题与摘要整块可点，直接进 Mail —— 不再单独放一行"在邮件里打开"。
-            Button {
-                openInMail()
-            } label: {
-                summaryBlock
-            }
-            .buttonStyle(.plain)
-
-            // 关联到快照时才有：真实发件人/主题/未读点/时间，点它同样进 Mail。
-            if let message = brief.message {
-                mailRow(message)
-            }
+        Button {
+            openInMail()
+        } label: {
+            summaryBlock
         }
+        .buttonStyle(.plain)
         .padding(.vertical, 6)
     }
 
@@ -176,9 +174,12 @@ private struct DetailBriefCard: View {
                 .frame(maxHeight: .infinity)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(brief.item.title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    unreadDot
+                    Text(brief.item.title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                }
                 Text(brief.item.detail)
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -191,30 +192,11 @@ private struct DetailBriefCard: View {
         .contentShape(Rectangle())
     }
 
-    private func mailRow(_ message: MessageSummary) -> some View {
-        Button {
-            openInMail()
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Circle()
-                    .fill(message.isRead ? Color.clear : Color.accentColor)
-                    .frame(width: 7, height: 7)
-                Text(message.sender)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                Text(message.subject)
-                    .font(.subheadline)
-                    .foregroundStyle(message.isRead ? .secondary : .primary)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                Text(message.date, style: .relative)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.leading, 14)
+    /// 未读时是 MailWidget 同款实心点；已读保留等宽透明占位，标题不会跟着左右跳。
+    private var unreadDot: some View {
+        Circle()
+            .fill(brief.isUnread ? Color.accentColor : Color.clear)
+            .frame(width: 7, height: 7)
     }
 
     /// 与 widget 侧 `DailyBriefCard.destination` 同一套三级兜底：mailURL → 该邮箱账户 →

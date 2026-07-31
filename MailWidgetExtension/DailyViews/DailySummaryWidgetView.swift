@@ -1,21 +1,22 @@
 // DailySummaryWidgetView.swift
 // Gmail 日报 widget 的渲染。
 //
-// 版式：总结与邮件交叉。
+// 版式：level 色条 + AI 标题 + 摘要，不再单独显示原始邮件那一行。
 //
 //   ✉ Gmail 日报  7月27日 09:03      详情  ▲1/2▼   3
 //   ────────────────────────────────────────────────
 //   总体总结（headline）
 //   ────────────────────────────────────────────────
-//   ▍第 1 件的标题
+//   ▍● 第 1 件的标题
 //     几行话总结
-//     ● 发件人                              2天前     ← 真实邮件行
-//       主题…
 //   ────────────────────────────────────────────────
 //   ▍第 2 件…
 //
-// 邮件那一行直接复用 MailWidget 的 MessageRow，所以两个 widget 是同一套零件：
-// 未读圆点、发件人加粗、主题、相对时间、以及"点进 Mail.app"的跳转逻辑全部一致。
+// 原来这里还有一行复用 MailWidget MessageRow 的「发件人 / 原始主题 / 相对时间」，
+// 已经删掉：这类邮件大量来自 Canvas/Instructure 之类通知网关，发件人显示名恒为
+// 某个人名、主题恒为模板套话（"...just sent you a message in Canvas."），跟 AI
+// 中文标题并排看着像挂错了邮件，纯属噪音。未读信号没有丢——挪到标题行行首的圆点，
+// 点击落点也没变，整块仍然跳 Mail.app（见 destination）。
 
 import SwiftUI
 import WidgetKit
@@ -228,32 +229,22 @@ struct DailySummaryWidgetView: View {
     }
 }
 
-/// 一「份」：level 色条 + 标题 + 几行话总结，下面接那封信本身。
+/// 一「份」：level 色条 + 未读点 + 标题 + 几行话总结。整块可点，直接进 Mail
+/// （有 Message-ID 就打开那封信，否则打开该账户的邮箱；都没有就退化成 gmailURL）。
 ///
-/// 邮件那一行直接用 MailWidget 的 `MessageRow`，包括它自己的跳转逻辑
-/// （有 Message-ID 就 `message://` 打开那封信，否则打开该账户的邮箱）。
-/// 关联不到邮件时退化成一个指向 Mail 邮箱的链接，仍然不会掉进浏览器。
+/// 原来这里还接一行复用 MailWidget `MessageRow` 的原始邮件行（发件人/主题/相对
+/// 时间），已删除——这类通知网关邮件的发件人/主题跟 AI 标题并排纯属噪音，见文件
+/// 头注释。未读信号没有丢，挪到了标题行行首的圆点上。
 private struct DailyBriefCard: View {
     let brief: DailyBriefItem
     let detailLines: Int
     let mailAccountID: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            // 标题与摘要整块可点，直接进 Mail —— 不再单独占一行去放"在邮件里打开"。
-            Link(destination: destination) {
-                summaryBlock
-            }
-            .buttonStyle(.plain)
-
-            // 关联到快照时才有这一行：真实发件人/主题/未读点/时间。它自带跳转逻辑
-            // （MailWidget 的 MessageRow），点它同样进 Mail。关联不到就什么都不显示，
-            // 上面那块已经可以点了。
-            if let message = brief.message, let accountID = brief.accountID {
-                MessageRow(message: message, accountID: accountID)
-                    .padding(.leading, 13)
-            }
+        Link(destination: destination) {
+            summaryBlock
         }
+        .buttonStyle(.plain)
     }
 
     /// 始终落在 Mail.app 里：有 Message-ID 就打开那封信，否则打开该账户的邮箱。
@@ -277,10 +268,13 @@ private struct DailyBriefCard: View {
                 .frame(maxHeight: .infinity)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(brief.item.title)
-                    .font(WidgetTheme.rowTitleFont)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    unreadDot
+                    Text(brief.item.title)
+                        .font(WidgetTheme.rowTitleFont)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
                 if !brief.item.detail.isEmpty {
                     Text(brief.item.detail)
                         .font(WidgetTheme.metaFont)
@@ -293,6 +287,13 @@ private struct DailyBriefCard: View {
         }
         .fixedSize(horizontal: false, vertical: true)
         .contentShape(Rectangle())
+    }
+
+    /// 未读时是 MailWidget 同款实心点；已读保留等宽透明占位，标题不会跟着左右跳。
+    private var unreadDot: some View {
+        Circle()
+            .fill(brief.isUnread ? Color.accentColor : Color.clear)
+            .frame(width: 7, height: 7)
     }
 }
 
