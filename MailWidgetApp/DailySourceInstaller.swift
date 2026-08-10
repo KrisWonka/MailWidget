@@ -56,7 +56,11 @@ enum DailySourceInstaller {
         return prompt
     }
 
-    private static func write(_ text: String, to url: URL) throws {
+    /// Not `private` — contract 12's `MailSummaryAutomationInstaller` reuses this
+    /// (and `run`/`backup`/`runnerScript`/`launchAgentPlist` below) instead of
+    /// keeping a second copy of "write a file" / "shell out to launchctl" / "the
+    /// 3-retry runner script" / "the launchd plist XML".
+    static func write(_ text: String, to url: URL) throws {
         do {
             try FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(),
@@ -70,7 +74,7 @@ enum DailySourceInstaller {
 
     /// 覆盖别人的配置文件前先留一份带时间戳的备份。日报的增量游标一旦丢失就会
     /// 造成邮件重复或漏报，备份是唯一的后悔药。
-    private static func backup(_ url: URL) throws {
+    static func backup(_ url: URL) throws {
         guard FileManager.default.fileExists(atPath: url.path) else { return }
         let stamp = ISO8601DateFormatter.backupStamp.string(from: Date())
         let target = url.appendingPathExtension("bak.\(stamp)")
@@ -82,7 +86,7 @@ enum DailySourceInstaller {
     }
 
     @discardableResult
-    private static func run(_ launchPath: String, _ arguments: [String]) -> (status: Int32, output: String) {
+    static func run(_ launchPath: String, _ arguments: [String]) -> (status: Int32, output: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: launchPath)
         process.arguments = arguments
@@ -223,7 +227,7 @@ enum DailySourceInstaller {
 
     /// 重试是为了覆盖 Gmail 连接器 tools fetch 的偶发超时——实测 `claude mcp list`
     /// 连续两次调用就出现过一次超时。无人值守的任务不能因为一次抖动就整天没有日报。
-    private static func runnerScript(command: String) -> String {
+    static func runnerScript(command: String) -> String {
         """
         #!/bin/bash
         # 由 MailWidget 生成。手工改动会在下次"一键添加"时被覆盖（改动前会自动备份）。
@@ -244,7 +248,7 @@ enum DailySourceInstaller {
         """
     }
 
-    private static func launchAgentPlist(
+    static func launchAgentPlist(
         label: String, scriptPath: String, logPath: String, hour: Int, minute: Int
     ) -> String {
         """

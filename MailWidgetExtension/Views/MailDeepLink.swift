@@ -44,4 +44,24 @@ enum MailDeepLink {
         components.queryItems = [URLQueryItem(name: "scope", value: scopeID)]
         return components.url
     }
+
+    /// Contract 12 — same scope restriction as `supportsMarkAllRead`: only the All
+    /// Inboxes scope and a single account's inbox have one unambiguous "which
+    /// mailbox" meaning to summarize. Unlike `supportsMarkAllRead` this doesn't
+    /// gate on unread count — a summary of an already-read inbox is still useful,
+    /// so delegating (rather than re-deriving) keeps that one scope judgment call
+    /// in a single place.
+    static func supportsMailSummary(scopeID: String) -> Bool {
+        supportsMarkAllRead(scopeID: scopeID)
+    }
+
+    /// Routes through the host app, which resolves `scope` (fail-closed — see
+    /// `AppDelegate` in the host app) and opens the mail-summary window.
+    static func mailSummary(scopeID: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = "mailwidget"
+        components.host = "mailSummary"
+        components.queryItems = [URLQueryItem(name: "scope", value: scopeID)]
+        return components.url
+    }
 }

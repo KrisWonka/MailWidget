@@ -19,6 +19,15 @@ struct MailWidgetApp: App {
             fflush(stderr)
             Darwin.exit(exitCode)
         }
+        // 契约 12：`MailWidget --summarize <scopeID>`，同一先例——同步跑完就退出，
+        // 不建立任何 Scene。
+        if let exitCode = SummarizeCommand.runIfRequested(
+            arguments: ProcessInfo.processInfo.arguments
+        ) {
+            fflush(stdout)
+            fflush(stderr)
+            Darwin.exit(exitCode)
+        }
     }
 
     var body: some Scene {
@@ -44,6 +53,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// `showDailyDetailWindow()` 复用同一个窗口——如果 model 换成局部变量，第二次
     /// 打开时读到的还是第一次那份（可能缺 messageIdHeader 的）旧日报。
     private let dailyDetailModel = DailyDetailModel()
+    private var mailSummaryWindow: NSWindow?
+    /// 契约 12：与 `dailyDetailModel` 同一取舍——单例、必须和窗口活得一样久。
+    private let mailSummaryModel = MailSummaryModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // P0 fix: SwiftUI's `App`/`Scene` lifecycle (MenuBarExtra included) installs
@@ -202,6 +214,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
             MailAppOpener.markAllRead(target)
+        case "mailsummary":
+            guard let scope = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "scope" })?.value else { return }
+            // Contract 12: same fail-closed shape as markAllRead above — an
+            // unrecognized scope (or an `account:` id that no longer exists in the
+            // snapshot) must not open the window at all, not silently fall back to
+            // "all". `MailSummaryScopeResolver` is the single judgment call shared
+            // with `MailSummaryModel`'s own scope-name lookup, so this can't drift
+            // from what the window itself considers valid.
+            guard MailSummaryScopeResolver.resolve(scopeID: scope, snapshot: SnapshotStore.load()) != nil else {
+                NSLog("%@", "MailWidget: mailSummary rejected for unrecognized scope \"\(scope)\" (fail-closed)")
+                return
+            }
+            showMailSummaryWindow(scopeID: scope)
         default:
             break
         }
@@ -269,6 +295,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         NSApp.activate(ignoringOtherApps: true)
         dailyDetailWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    /// 契约 12 — 邮件总结窗口。同 `showDailyDetailWindow()` 的取舍：`mailSummaryModel
+    /// .show(scopeID:)` 放在最前面、每次调用本函数都无条件跑一次，不依赖 AppKit
+    /// key/active 通知时序——这是"要把这个窗口给用户看"的唯一入口（widget 按钮），
+    /// 天然覆盖"窗口复用、换 scope 再次打开"的场景。
+    private func showMailSummaryWindow(scopeID: String) {
+        mailSummaryModel.show(scopeID: scopeID)
+        if mailSummaryWindow == nil {
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 560, height: 560),
+                styleMask: [.titled, .closable, .resizable],
+                backing: .buffered,
+                defer: false
+            )
+            window.title = "邮件总结"
+            window.isReleasedWhenClosed = false
+            window.center()
+            window.contentView = NSHostingView(rootView: MailSummaryView(model: mailSummaryModel))
+            mailSummaryWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        mailSummaryWindow?.makeKeyAndOrderFront(nil)
     }
 
     private func showOnboardingWindow() {

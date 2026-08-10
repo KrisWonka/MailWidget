@@ -24,6 +24,7 @@ struct MailboxHeaderRow: View {
                 }
             }
             Spacer()
+            mailSummaryButton
             markAllReadButton
             if let pageInfo, pageInfo.totalPages > 1 {
                 pageControls(pageInfo)
@@ -31,6 +32,24 @@ struct MailboxHeaderRow: View {
             Text("\(unreadCount)")
                 .font(.title2.weight(.bold))
                 .foregroundStyle(unreadCount > 0 ? Color.accentColor : Color.secondary)
+        }
+    }
+
+    /// Contract 12 — sits to the left of the "mark all read" envelope. Opens the
+    /// host app's mail-summary window for this scope. Same scope restriction as
+    /// `markAllReadButton` (all/account only — see `MailDeepLink.supportsMailSummary`),
+    /// but shown regardless of unread count: a summary is useful even once
+    /// everything's read.
+    @ViewBuilder
+    private var mailSummaryButton: some View {
+        if MailDeepLink.supportsMailSummary(scopeID: scopeID),
+           let url = MailDeepLink.mailSummary(scopeID: scopeID) {
+            Link(destination: url) {
+                Image(systemName: "text.magnifyingglass")
+            }
+            .buttonStyle(.plain)
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
     }
 
