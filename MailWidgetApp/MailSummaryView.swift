@@ -432,6 +432,7 @@ private struct MailSummaryAutomationButton: View {
             MailSummaryAutomationPanelContent(
                 statusText: statusText,
                 statusIsError: failedAction != nil,
+                engineDisplayName: MailSummaryEngineDisplay.name(for: MailSummarizer.engine),
                 isEnabled: $isEnabled,
                 time: timeBinding,
                 scopeID: $scopeID,
@@ -525,6 +526,9 @@ private struct MailSummaryAutomationButton: View {
 struct MailSummaryAutomationPanelContent: View {
     let statusText: String
     let statusIsError: Bool
+    /// 契约 12 后续补充：状态短句下方再加一行"引擎：Claude/Codex"，纯展示、点击无
+    /// 操作——引擎切换在 `SettingsView` 的 Picker，这里不重复做一份控件，面板保持轻。
+    let engineDisplayName: String
     let isEnabled: Binding<Bool>
     let time: Binding<Date>
     let scopeID: Binding<String>
@@ -535,9 +539,14 @@ struct MailSummaryAutomationPanelContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(statusText)
-                .font(.caption)
-                .foregroundStyle(statusIsError ? Color.red : Color.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(statusText)
+                    .font(.caption)
+                    .foregroundStyle(statusIsError ? Color.red : Color.secondary)
+                Text("引擎：\(engineDisplayName)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
 
             Toggle("每日自动总结", isOn: Binding(
                 get: { isEnabled.wrappedValue },

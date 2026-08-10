@@ -75,6 +75,16 @@ enum MailSummaryAutomationSettings {
     }
 }
 
+/// 引擎标识符（`MailSummarizer.engine`/`mailSummaryLastEngine.<scopeID>` 键，取值
+/// "claude"|"codex"）→ 中文/英文展示名。`SettingsView` 的引擎 Picker 说明文字、
+/// 「上次总结」行，以及总结窗口 popover 里的"引擎：Claude"展示行，三处共用同一份
+/// 映射，不给出第二份——避免以后加第三个引擎时只改了其中一处。
+enum MailSummaryEngineDisplay {
+    static func name(for raw: String) -> String {
+        raw == "codex" ? "Codex" : "Claude"
+    }
+}
+
 enum MailSummaryAutomationInstaller {
 
     /// launchd label 固定——这不是"任意 CLI agent"那种可配置出口，只服务总结自动化
@@ -89,6 +99,14 @@ enum MailSummaryAutomationInstaller {
     /// `ProcessInfo.arguments`，跟这里写死的路径无关——这里写死是因为 launchd 启动
     /// 一个进程必须给它一个绝对路径，不能指望继承到任何 PATH。
     private static let appExecutablePath = "/Applications/MailWidget.app/Contents/MacOS/MailWidget"
+
+    /// `install(scopeID:hour:minute:)` 内部用它拼 launchd 脚本要跑的那一行命令；
+    /// `SettingsView`「复制命令」按钮也调用同一个函数（不是照抄同一段字符串拼接
+    /// 逻辑）——这样两处的引号/转义/路径永远是同一份，不会出现"设置页复制出来的
+    /// 命令"和"launchd 实际在跑的命令"不一致这种事后很难查的漂移。
+    static func summarizeCommand(scopeID: String) -> String {
+        "\"\(appExecutablePath)\" --summarize \"\(scopeID)\""
+    }
 
     private static var home: URL { URL(fileURLWithPath: NSHomeDirectory()) }
 
@@ -118,7 +136,7 @@ enum MailSummaryAutomationInstaller {
     /// 重新校准 `isEnabled`，但 hour/minute/scopeID 这三个"上一份成功配置"保持不变。
     @discardableResult
     static func install(scopeID: String, hour: Int = defaultHour, minute: Int = defaultMinute) throws -> DailySourceInstaller.Outcome {
-        let command = "\"\(appExecutablePath)\" --summarize \"\(scopeID)\""
+        let command = summarizeCommand(scopeID: scopeID)
 
         try DailySourceInstaller.write(DailySourceInstaller.runnerScript(command: command), to: scriptURL)
         try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)

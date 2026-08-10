@@ -301,7 +301,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// .show(scopeID:)` 放在最前面、每次调用本函数都无条件跑一次，不依赖 AppKit
     /// key/active 通知时序——这是"要把这个窗口给用户看"的唯一入口（widget 按钮），
     /// 天然覆盖"窗口复用、换 scope 再次打开"的场景。
-    private func showMailSummaryWindow(scopeID: String) {
+    /// Not `private` — `SettingsView`'s new 邮件总结 Section (「配置…」/「打开总结窗口」
+    /// buttons) calls this directly via `NSApp.delegate as? AppDelegate` instead of
+    /// round-tripping through a self-addressed `mailwidget://` URL, since both live in
+    /// the same process.
+    func showMailSummaryWindow(scopeID: String) {
         mailSummaryModel.show(scopeID: scopeID)
         if mailSummaryWindow == nil {
             let window = NSWindow(

@@ -1,6 +1,6 @@
 // MailSummarizer.swift
 // DataKit — 契约 12：邮件总结的编排层。同步执行完整链路：
-// MailContentFetcher.fetch → 组装 prompt → `/Users/kris/.local/bin/claude -p <prompt>`
+// MailContentFetcher.fetch → 组装 prompt → 引擎子进程（claude -p / codex exec）
 // → 解析+校验 stdout → MailSummaryStore.save。
 //
 // Process 调用手法完全照抄 DailyRegenerator（stdin 置空、cwd=HOME、PATH 注入
@@ -12,6 +12,13 @@
 //
 // 防重入 flag 与 DailyRegenerator 同款：15 分钟过期兜底，开始写入、结束（无论
 // 成功/失败/异常）清除。
+//
+// 引擎选择（`engine` App Group defaults 键）：跟 DailySourceSettings.selectedSource
+// 同款手法——非法/未设置值一律回落 "claude"。两个引擎共用同一份 fetch/prompt/解析/
+// 校验/落盘逻辑，只有子进程的 executable + arguments 不同；codex 分支的参数形态
+// 直接照抄 DailyRegenerator 里已经真机验证过的结论（`exec --skip-git-repo-check
+// <prompt>`，且 PATH 必须包含 /opt/homebrew/bin——codex 是 `#!/usr/bin/env node`
+// 脚本）。
 
 import Foundation
 
@@ -21,10 +28,10 @@ enum MailSummarizer {
         case unsupportedScope(String)
         case unknownAccount(String)
         case noMailsAvailable
-        case claudeNotFound(String)
-        case claudeLaunchFailed(String)
-        case claudeTimedOut
-        case claudeExitedNonZero(Int32)
+        case engineNotFound(String)
+        case engineLaunchFailed(String)
+        case engineTimedOut
+        case engineExitedNonZero(Int32)
         case noJSONObjectFound
         case jsonDecodeFailed(String)
         case storeUnavailable(String)
@@ -37,18 +44,18 @@ enum MailSummarizer {
                 return "Cannot resolve account for scope \(scopeID) from current snapshot"
             case .noMailsAvailable:
                 return "No mails with a usable Message-ID header were fetched"
-            case .claudeNotFound(let path):
-                return "claude executable not found at \(path)"
-            case .claudeLaunchFailed(let message):
-                return "Failed to launch claude: \(message)"
-            case .claudeTimedOut:
-                return "claude did not exit within the timeout; process was terminated"
-            case .claudeExitedNonZero(let code):
-                return "claude exited with non-zero status \(code)"
+            case .engineNotFound(let path):
+                return "Summary engine executable not found at \(path)"
+            case .engineLaunchFailed(let message):
+                return "Failed to launch summary engine: \(message)"
+            case .engineTimedOut:
+                return "Summary engine did not exit within the timeout; process was terminated"
+            case .engineExitedNonZero(let code):
+                return "Summary engine exited with non-zero status \(code)"
             case .noJSONObjectFound:
-                return "No JSON object found in claude stdout"
+                return "No JSON object found in engine stdout"
             case .jsonDecodeFailed(let message):
-                return "Failed to decode claude JSON output: \(message)"
+                return "Failed to decode engine JSON output: \(message)"
             case .storeUnavailable(let message):
                 return "Failed to save mail summary: \(message)"
             }
@@ -59,11 +66,22 @@ enum MailSummarizer {
     /// "unread 优先、按日期倒序" 综合全部账户排序、截到总数 ≤20。
     static let maximumSelectedMails = 20
 
-    /// claude 子进程超时；到点 terminate 并记为失败，不无限期挂起调用线程。
-    static let claudeTimeout: TimeInterval = 10 * 60
+    /// 引擎子进程超时；到点 terminate 并记为失败，不无限期挂起调用线程。
+    static let engineTimeout: TimeInterval = 10 * 60
 
     /// App Group defaults 里"正在生成"标志的过期兜底，跟 DailyRegenerator 同款 15 分钟。
     static let staleAfter: TimeInterval = 15 * 60
+
+    /// 引擎 ID：跟 `DailySource.claude`/`DailySource.codex` 用同样的字面量，但这里
+    /// 故意不复用那个类型——日报的来源仲裁（`DailySourceSettings`）跟邮件总结的引擎
+    /// 选择是两件独立的事，只是恰好取值集合相同，没必要在类型层面耦合。
+    static let engineClaude = "claude"
+    static let engineCodex = "codex"
+    private static let validEngines: Set<String> = [engineClaude, engineCodex]
+
+    /// App Group defaults 键名，供 `engine` get/set 内部使用，internal 是为了让
+    /// harness/单测能在不重复硬编码字符串的情况下核对持久化用的是哪个键。
+    static let engineDefaultsKey = "mailSummaryEngine"
 
     private static let logURL = URL(fileURLWithPath: NSHomeDirectory())
         .appendingPathComponent("Library/Logs/mailwidget-mail-summary.log", isDirectory: false)
@@ -90,6 +108,27 @@ enum MailSummarizer {
         "mailSummaryLastError.\(scopeID)"
     }
 
+    static func lastEngineKey(forScopeID scopeID: String) -> String {
+        "mailSummaryLastEngine.\(scopeID)"
+    }
+
+    /// App Group defaults 键 `mailSummaryEngine`：当前选中的邮件总结引擎，
+    /// "claude" | "codex"。跟 `DailySourceSettings.selectedSource` 同款手法——
+    /// 未设置或存了非法值一律回落 "claude"，settings UI 不需要自己做校验。
+    static var engine: String {
+        get {
+            guard let value = defaults?.string(forKey: engineDefaultsKey),
+                  validEngines.contains(value) else {
+                return engineClaude
+            }
+            return value
+        }
+        set {
+            guard validEngines.contains(newValue) else { return }
+            defaults?.set(newValue, forKey: engineDefaultsKey)
+        }
+    }
+
     /// widget/窗口查询用：flag 存在且未过期。
     static func isGenerating(scopeID: String, now: Date = Date()) -> Bool {
         guard let startedAt = defaults?.object(forKey: startedAtKey(forScopeID: scopeID)) as? Date else {
@@ -106,6 +145,11 @@ enum MailSummarizer {
         defaults?.set(Date(), forKey: startedAtKey(forScopeID: scopeID))
         defer { defaults?.removeObject(forKey: startedAtKey(forScopeID: scopeID)) }
 
+        // 一次 summarize() 调用从头到尾用同一个引擎——即便用户在总结跑到一半时
+        // 改了 Settings 里的选择，这次运行也不会中途换引擎（下次 summarize() 调用
+        // 才会看到新值），避免"用哪个引擎跑的"跟"最后写进 lastEngine 的是哪个"对不上。
+        let usedEngine = engine
+
         do {
             let (accountNames, scopeName) = try resolveScope(scopeID: scopeID)
             let fetched = try MailContentFetcher.fetch(accountNames: accountNames)
@@ -120,8 +164,8 @@ enum MailSummarizer {
                 log("scope=\(scopeID) 没有可总结的邮件，发布空总结")
             } else {
                 let prompt = buildPrompt(scopeName: scopeName, mails: selected)
-                log("scope=\(scopeID) 已选 \(selected.count) 封，prompt 长度 \(prompt.count) 字符，开始调用 claude")
-                let stdout = try runClaude(prompt: prompt)
+                log("scope=\(scopeID) 已选 \(selected.count) 封，prompt 长度 \(prompt.count) 字符，开始调用引擎 \(usedEngine)")
+                let stdout = try runEngine(usedEngine, prompt: prompt)
                 let payloadItems = try parseClaudeOutput(stdout)
                 items = reconcile(payloadItems: payloadItems, inputMails: selected)
             }
@@ -140,7 +184,8 @@ enum MailSummarizer {
             }
 
             clearLastError(scopeID: scopeID)
-            log("scope=\(scopeID) 完成，items=\(items.count)")
+            defaults?.set(usedEngine, forKey: lastEngineKey(forScopeID: scopeID))
+            log("scope=\(scopeID) 完成，引擎=\(usedEngine)，items=\(items.count)")
             return true
         } catch {
             let message = String(describing: error)
@@ -222,18 +267,44 @@ enum MailSummarizer {
         return lines.joined(separator: "\n")
     }
 
-    // MARK: - claude 子进程
+    // MARK: - 引擎子进程
 
-    private static let claudeExecutableURL = URL(fileURLWithPath: "/Users/kris/.local/bin/claude")
+    /// 引擎 → 可执行文件路径。未知引擎（理论上到不了这里，`engine` getter 已经
+    /// fail-closed 到 "claude"）也回落 claude 路径，不返回 nil 让调用方多处理一层。
+    /// internal（非 private）方便 harness/单测 dump 两个分支的 (binary, args) 组装
+    /// 结果核对，不用真的起子进程。
+    static func executableURL(for engine: String) -> URL {
+        switch engine {
+        case engineCodex:
+            return URL(fileURLWithPath: "/opt/homebrew/bin/codex")
+        default:
+            return URL(fileURLWithPath: "/Users/kris/.local/bin/claude")
+        }
+    }
 
-    private static func runClaude(prompt: String) throws -> String {
-        guard FileManager.default.isExecutableFile(atPath: claudeExecutableURL.path) else {
-            throw SummarizeError.claudeNotFound(claudeExecutableURL.path)
+    /// 参数形态：codex 分支照抄 `DailyRegenerator.arguments(for:prompt:)` 里已经
+    /// 真机验证过的结论——`exec --skip-git-repo-check <prompt>`。`--skip-git-repo-check`
+    /// 是因为宿主 app 的工作目录不是 git 仓库，codex 默认的受信目录检查会直接拒绝
+    /// 执行（DailyRegenerator 真机首跑实测踩过的坑）。两个引擎对 prompt 一视同仁，
+    /// 不做任何按引擎分叉的 prompt 改写——这是一个纯文本总结任务，不依赖工具调用。
+    static func arguments(for engine: String, prompt: String) -> [String] {
+        switch engine {
+        case engineCodex:
+            return ["exec", "--skip-git-repo-check", prompt]
+        default:
+            return ["-p", prompt]
+        }
+    }
+
+    private static func runEngine(_ engine: String, prompt: String) throws -> String {
+        let resolvedExecutableURL = executableURL(for: engine)
+        guard FileManager.default.isExecutableFile(atPath: resolvedExecutableURL.path) else {
+            throw SummarizeError.engineNotFound(resolvedExecutableURL.path)
         }
 
         let process = Process()
-        process.executableURL = claudeExecutableURL
-        process.arguments = ["-p", prompt]
+        process.executableURL = resolvedExecutableURL
+        process.arguments = arguments(for: engine, prompt: prompt)
         process.environment = expandedEnvironment()
         process.currentDirectoryURL = URL(fileURLWithPath: NSHomeDirectory())
         process.standardInput = FileHandle.nullDevice
@@ -262,7 +333,7 @@ enum MailSummarizer {
         } catch {
             stdoutPipe.fileHandleForReading.readabilityHandler = nil
             stderrPipe.fileHandleForReading.readabilityHandler = nil
-            throw SummarizeError.claudeLaunchFailed(error.localizedDescription)
+            throw SummarizeError.engineLaunchFailed(error.localizedDescription)
         }
 
         let timeoutFlag = TimeoutFlag()
@@ -271,7 +342,7 @@ enum MailSummarizer {
             timeoutFlag.value = true
             process.terminate()
         }
-        timeoutQueue.asyncAfter(deadline: .now() + claudeTimeout, execute: timeoutWorkItem)
+        timeoutQueue.asyncAfter(deadline: .now() + engineTimeout, execute: timeoutWorkItem)
 
         // 同步等待：这是 CLI/后台线程语境（调用方保证不在主线程跑），不用 async API。
         process.waitUntilExit()
@@ -292,10 +363,10 @@ enum MailSummarizer {
         }
 
         if timeoutFlag.value {
-            throw SummarizeError.claudeTimedOut
+            throw SummarizeError.engineTimedOut
         }
         guard process.terminationStatus == 0 else {
-            throw SummarizeError.claudeExitedNonZero(process.terminationStatus)
+            throw SummarizeError.engineExitedNonZero(process.terminationStatus)
         }
         return stdoutBox.string
     }
