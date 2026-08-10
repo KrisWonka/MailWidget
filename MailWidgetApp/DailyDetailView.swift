@@ -94,27 +94,25 @@ struct DailyDetailView: View {
 
             Spacer(minLength: 8)
 
-            // 通往「日报源」设置（Codex / Claude 切换、一键添加定时任务）。
-            // 本 app 是 LSUIElement：没有应用菜单，⌘, 打不开设置，此前唯一入口是
-            // 菜单栏图标里的 Settings… —— 而用户点 app 图标弹出来的是这个窗口，
-            // 会先在这里找。
-            SettingsLink {
-                Label("日报源设置", systemImage: "gearshape")
-                    .labelStyle(.titleAndIcon)
-                    .font(.caption)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .help("选择日报由 Codex 还是 Claude 生成，或一键添加定时任务")
+            // ⚙️/↻ 图标按钮组：与邮件总结窗口的 header 统一样式（`WindowHeaderControls
+            // .swift`）。⚙️ 通往 MailWidget 的设置窗口——本 app 是 LSUIElement：没有
+            // 应用菜单，⌘, 打不开设置，此前唯一入口是菜单栏图标里的 Settings… ——
+            // 而用户点 app 图标弹出来的是这个窗口，会先在这里找。日报源（Codex/Claude
+            // 切换、一键添加定时任务）与邮件总结引擎/自动化现在都在 SettingsView 里，
+            // 不需要这里的 tooltip 再单独说明其中一项功能。
+            HStack(spacing: WindowHeaderIconStyle.spacing) {
+                WindowSettingsButton()
 
-            Button {
-                model.reload()
-            } label: {
-                Image(systemName: "arrow.clockwise")
+                Button {
+                    model.reload()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .font(WindowHeaderIconStyle.font)
+                .help("重新读取日报")
             }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .help("重新读取日报")
 
             Text("\(model.brief?.unreadCount ?? 0)")
                 .font(.title2.weight(.bold))

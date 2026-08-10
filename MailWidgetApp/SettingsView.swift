@@ -184,8 +184,10 @@ struct SettingsView: View {
     /// CLI（`MailSummarizer.summarize` 起一个本机 claude/codex 子进程），跟"在
     /// Claude/Codex 应用里排一个任务"完全是两回事，UI 上必须写明白，不能让用户去
     /// 那两个应用里找。这个 Section 参照 `gmailDailySection` 的详细度：引擎选择 +
-    /// 自动化状态（配置入口在总结窗口的 ⏰ popover，这里只展示状态、不重复做控件）+
-    /// 上次总结时间 + 打开窗口/复制命令两个出口 + 一段说明 footnote。
+    /// 自动化状态（「配置…」按钮就地弹出 popover——原来挂在总结窗口 header 的 ⏰
+    /// 图标上，两个 host 窗口 header 统一样式后整个搬来这里，见
+    /// `MailSummaryAutomationConfigButton`）+ 上次总结时间 + 打开窗口/复制命令两个
+    /// 出口 + 一段说明 footnote。
     ///
     /// 渲染逻辑抽成无状态的 `MailSummarySectionContent`（跟 `MailSummaryContentView`/
     /// `MailSummaryAutomationPanelContent` 同一个拆分理由）：这里只负责把 `@State`
@@ -204,7 +206,7 @@ struct SettingsView: View {
             ),
             automationStatusText: summaryAutomationStatusText,
             lastSummaryText: lastMailSummaryText,
-            onConfigure: openMailSummaryWindow,
+            onAutomationChange: reloadMailSummaryState,
             onOpenWindow: openMailSummaryWindow,
             onCopyCommand: copySummarizeCommand
         )
@@ -221,9 +223,9 @@ struct SettingsView: View {
     }
 
     /// "当前配置 scope"：自动化配置过就用它的 scope，没配置过（`scopeID == nil`）
-    /// 回落到 `MailScope.all`——跟 `MailSummaryAutomationButton.reloadFromSettings()`
-    /// 里"没配置过用当前窗口 scope"不同，这里没有"当前窗口"这个上下文可用（Settings
-    /// 是独立窗口），"all" 是唯一合理的默认。
+    /// 回落到 `MailScope.all`——`MailSummaryAutomationConfigButton` 内部的
+    /// `reloadFromSettings()` 同样落到 `MailScope.all`，这里没有"当前总结窗口"
+    /// 这个上下文可用（Settings 是独立窗口），"all" 是唯一合理的默认。
     private var lastMailSummaryText: String {
         let scopeID = summaryAutomationScopeID
         let loaded: MailSummary?
@@ -248,9 +250,9 @@ struct SettingsView: View {
 
     /// 总结窗口是同一进程里的单例窗口（`AppDelegate.showMailSummaryWindow`），
     /// 直接拿 delegate 调用，不用再绕一圈自发 `mailwidget://mailSummary` URL。
-    /// 「配置…」和「打开总结窗口」共用这一个函数——两者语义相同，打开的是同一个
-    /// 窗口，自动化面板（Toggle/时间/范围）本来就在那个窗口的 ⏰ 里，Settings 这边
-    /// 不重复做一份。
+    /// 只给「打开总结窗口」用——「配置…」不再打开这个窗口，见
+    /// `MailSummaryAutomationConfigButton`（自动化面板已经搬到这个文件里，就地弹
+    /// popover，不用再跳窗口）。
     private func openMailSummaryWindow() {
         (NSApp.delegate as? AppDelegate)?.showMailSummaryWindow(scopeID: summaryAutomationScopeID)
     }
@@ -293,11 +295,21 @@ struct SettingsView: View {
 /// `SnapshotStore`、不读 App Group defaults——所有展示文案都是入参，写回动作都是
 /// 回调。渲染验证 harness 用固定字符串 + `.constant(...)`/普通 `Binding` 就能重现
 /// 任意状态截图，不用真的触发 `SettingsView.reloadMailSummaryState()` 那条读盘路径。
+///
+/// 「配置…」这里例外——它是 `MailSummaryAutomationConfigButton`（下方定义，有自己的
+/// @State），不是靠回调转发的纯展示元素：真的点击它会打开一个 popover 并可能触发
+/// 真实的 install/uninstall I/O，但仅仅是把这个视图渲染到屏幕上（构造它、显示它）
+/// 不会触发任何 I/O——@State 初值都是字面量，读盘只发生在按钮被点击、`showPanel`
+/// 变 true 之后。所以渲染验证 harness 直接把整个 `MailSummarySectionContent` 渲染
+/// 出来仍然是安全的、确定性的。
 struct MailSummarySectionContent: View {
     let engine: Binding<String>
     let automationStatusText: String
     let lastSummaryText: String
-    let onConfigure: () -> Void
+    /// 自动化面板成功装载/停用后调用，让「自动化」行的状态短句立刻反映最新配置——
+    /// 不然用户在 popover 里勾选了 Toggle，旁边那行字要等下次窗口重新打开
+    /// （`.onAppear`）才会更新，体验上像是"改了但没生效"。
+    let onAutomationChange: () -> Void
     let onOpenWindow: () -> Void
     let onCopyCommand: () -> Void
 
@@ -313,7 +325,7 @@ struct MailSummarySectionContent: View {
                     Text(automationStatusText)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Button("配置…", action: onConfigure)
+                    MailSummaryAutomationConfigButton(onChange: onAutomationChange)
                 }
             }
 
@@ -331,5 +343,135 @@ struct MailSummarySectionContent: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+}
+
+/// 「配置…」打开一个设置面板（popover）——契约 12 自动化的唯一配置入口。原来挂在
+/// 邮件总结窗口 header 的 ⏰ 图标上；用户对比两个 host 窗口的截图反馈 header 该长
+/// 一个样后（统一成"左 ⚙️ 右 ↻，都是纯图标"），整个自动化面板搬进了 SettingsView，
+/// 窗口 header 不再有第三个功能入口。面板内的 Toggle/时间/范围本身就是明确操作，
+/// 不需要再弹一层确认框。
+///
+/// 状态短句只有两种颜色：secondary 灰色（当前的真实状态：已启用到几点几分，或未
+/// 启用）、红色（上一次操作失败，只给"启用/停用/保存失败"这种短句，技术性细节
+/// 留给 `~/Library/Logs/mailwidget-mail-summary.log`，不堆在 UI 里）。
+///
+/// 这个组件本身持有 @State（真实的 Toggle 开关要触发真实的 install/uninstall
+/// I/O），但面板本身的渲染逻辑是无状态的 `MailSummaryAutomationPanelContent`（定义
+/// 在 `MailSummaryView.swift`——契约 12 总结窗口那批类型还在那边，只是这个"打开
+/// 它"的按钮搬了家）：渲染验证 harness 能直接用 `.constant(...)` 绑定灌固定状态，
+/// 不用真的写 App Group defaults 或真的调 launchctl。
+private struct MailSummaryAutomationConfigButton: View {
+    var onChange: () -> Void = {}
+
+    private enum Action { case enable, disable, save }
+
+    @State private var showPanel = false
+    @State private var isEnabled = false
+    @State private var hour = MailSummaryAutomationInstaller.defaultHour
+    @State private var minute = MailSummaryAutomationInstaller.defaultMinute
+    @State private var scopeID = MailScope.all
+    @State private var isBusy = false
+    @State private var failedAction: Action?
+
+    var body: some View {
+        Button("配置…") {
+            reloadFromSettings()
+            showPanel = true
+        }
+        .popover(isPresented: $showPanel, arrowEdge: .top) {
+            MailSummaryAutomationPanelContent(
+                statusText: statusText,
+                statusIsError: failedAction != nil,
+                engineDisplayName: MailSummaryEngineDisplay.name(for: MailSummarizer.engine),
+                isEnabled: $isEnabled,
+                time: timeBinding,
+                scopeID: $scopeID,
+                accountOptions: accountOptions,
+                isBusy: isBusy,
+                onToggle: { newValue in
+                    if newValue {
+                        performInstall(action: .enable)
+                    } else {
+                        performUninstall()
+                    }
+                },
+                onSave: { performInstall(action: .save) }
+            )
+        }
+    }
+
+    private var accountOptions: [(id: String, name: String)] {
+        (SnapshotStore.load()?.accounts ?? []).map { (id: $0.id, name: $0.name) }
+    }
+
+    /// `DatePicker` 要的是 `Date`；面板内部只关心时:分，年月日一律用当前日期占位，
+    /// 写回时只取 `.hour`/`.minute` 两个分量。
+    private var timeBinding: Binding<Date> {
+        Binding(
+            get: { Self.date(hour: hour, minute: minute) },
+            set: { newDate in
+                let components = Calendar.current.dateComponents([.hour, .minute], from: newDate)
+                hour = components.hour ?? hour
+                minute = components.minute ?? minute
+            }
+        )
+    }
+
+    private static func date(hour: Int, minute: Int) -> Date {
+        var components = DateComponents()
+        components.hour = hour
+        components.minute = minute
+        return Calendar.current.date(from: components) ?? Date()
+    }
+
+    private var statusText: String {
+        switch failedAction {
+        case .enable: return "启用失败"
+        case .disable: return "停用失败"
+        case .save: return "保存失败"
+        case nil: return isEnabled ? String(format: "每天 %02d:%02d · 已启用", hour, minute) : "未启用"
+        }
+    }
+
+    /// 面板每次打开都重新校准——不只是读上次的草稿，是因为 plist 有可能在窗口关着
+    /// 的这段时间被外部改动过（用户手动删了文件、或者另一次 Settings 窗口的面板
+    /// 已经保存过新配置）。`reconcileEnabledWithDisk()` 保证 `isEnabled` 不是过期的。
+    /// 没配置过（`scopeID == nil`）落到 `MailScope.all`——这里没有"当前总结窗口"
+    /// 这个上下文可用，"all" 是唯一合理的默认。
+    private func reloadFromSettings() {
+        isEnabled = MailSummaryAutomationSettings.reconcileEnabledWithDisk()
+        hour = MailSummaryAutomationSettings.hour
+        minute = MailSummaryAutomationSettings.minute
+        scopeID = MailSummaryAutomationSettings.scopeID ?? MailScope.all
+        failedAction = nil
+    }
+
+    /// Toggle 打开 与「保存」共用同一条装载路径——两者的语义都是"用当前面板草稿去
+    /// (重新) 装载"，区别只是失败时该说"启用失败"还是"保存失败"。成功/失败都调
+    /// `onChange()`，让「自动化」行的状态短句跟着刷新。
+    private func performInstall(action: Action) {
+        failedAction = nil
+        isBusy = true
+        do {
+            try MailSummaryAutomationInstaller.install(scopeID: scopeID, hour: hour, minute: minute)
+            isEnabled = true
+        } catch {
+            failedAction = action
+            // 装载失败不代表"之前那份"也失效了——用磁盘上 plist 是否存在重新校准，
+            // 而不是简单地把 isEnabled 悲观地拍成 false。
+            isEnabled = MailSummaryAutomationSettings.reconcileEnabledWithDisk()
+        }
+        isBusy = false
+        onChange()
+    }
+
+    private func performUninstall() {
+        failedAction = nil
+        isBusy = true
+        MailSummaryAutomationInstaller.uninstall()
+        isEnabled = false
+        isBusy = false
+        onChange()
     }
 }
