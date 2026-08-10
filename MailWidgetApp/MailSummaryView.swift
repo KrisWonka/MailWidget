@@ -243,7 +243,7 @@ struct MailSummaryContentView: View {
             Spacer(minLength: 8)
 
             regenerateControl
-            MailSummaryAutomationButton(scopeID: scopeID)
+            MailSummaryAutomationButton(currentScopeID: scopeID)
         }
     }
 
@@ -387,59 +387,183 @@ private struct MailSummaryRow: View {
     }
 }
 
-/// 「⏰ 添加每日自动化」：先弹确认框列出将写入的两个路径与触发时间，用户确认后才
-/// 调 `MailSummaryAutomationInstaller.install`，结果反馈成按钮下方一行字
-/// （成功/失败），不用弹第二个对话框打断操作。
+/// 「⏰」打开一个设置面板（popover），不再点一下就直接装。面板内的 Toggle/时间/
+/// 范围本身就是明确操作，不需要再弹一层确认框——原来的 `.confirmationDialog` 已按
+/// 用户反馈去掉。
+///
+/// 状态短句只有两种颜色：secondary 灰色（当前的真实状态：已启用到几点几分，或未
+/// 启用）、红色（上一次操作失败，只给"启用/停用/保存失败"这种短句，技术性细节
+/// 留给 `~/Library/Logs/mailwidget-mail-summary.log`，不堆在 UI 里）。
+///
+/// 跟 `MailSummaryView`/`MailSummaryContentView` 同一个拆分理由：这个按钮自己持有
+/// @State（真实的 Toggle 开关要触发真实的 install/uninstall I/O），但面板本身的
+/// 渲染逻辑抽成下面无状态的 `MailSummaryAutomationPanelContent`——渲染验证 harness
+/// 能直接用 `.constant(...)` 绑定灌固定状态，不用真的写 App Group defaults 或真的
+/// 调 launchctl。
 private struct MailSummaryAutomationButton: View {
-    let scopeID: String
+    /// 总结窗口当前正在看的 scope——只在"从未配置过自动化"（`MailSummaryAutomationSettings
+    /// .scopeID == nil`）时用作范围选择器的默认值；配置过之后，草稿状态一律从
+    /// `MailSummaryAutomationSettings` 回读，不再受窗口切换 scope 影响。
+    let currentScopeID: String
 
-    @State private var showConfirmation = false
-    @State private var resultMessage: String?
-    @State private var resultIsError = false
+    private enum Action { case enable, disable, save }
 
-    private var preview: (scriptPath: String, plistPath: String, hour: Int, minute: Int) {
-        MailSummaryAutomationInstaller.preview()
-    }
+    @State private var showPanel = false
+    @State private var isEnabled = false
+    @State private var hour = MailSummaryAutomationInstaller.defaultHour
+    @State private var minute = MailSummaryAutomationInstaller.defaultMinute
+    @State private var scopeID = MailScope.all
+    @State private var isBusy = false
+    @State private var failedAction: Action?
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 2) {
-            Button {
-                showConfirmation = true
-            } label: {
-                Label("添加每日自动化", systemImage: "alarm")
-                    .labelStyle(.titleAndIcon)
-                    .font(.caption)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .confirmationDialog(
-                String(format: "每天 %02d:%02d 自动重新总结？", preview.hour, preview.minute),
-                isPresented: $showConfirmation,
-                titleVisibility: .visible
-            ) {
-                Button("添加") { install() }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("将写入：\n\(preview.scriptPath)\n\(preview.plistPath)")
-            }
-
-            if let resultMessage {
-                Text(resultMessage)
-                    .font(.caption2)
-                    .foregroundStyle(resultIsError ? Color.red : Color.green)
-                    .textSelection(.enabled)
-            }
+        Button {
+            reloadFromSettings()
+            showPanel = true
+        } label: {
+            Label("自动化", systemImage: "alarm")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .help("配置每日自动重新总结")
+        .popover(isPresented: $showPanel, arrowEdge: .top) {
+            MailSummaryAutomationPanelContent(
+                statusText: statusText,
+                statusIsError: failedAction != nil,
+                isEnabled: $isEnabled,
+                time: timeBinding,
+                scopeID: $scopeID,
+                accountOptions: accountOptions,
+                isBusy: isBusy,
+                onToggle: { newValue in
+                    if newValue {
+                        performInstall(action: .enable)
+                    } else {
+                        performUninstall()
+                    }
+                },
+                onSave: { performInstall(action: .save) }
+            )
         }
     }
 
-    private func install() {
-        do {
-            let outcome = try MailSummaryAutomationInstaller.install(scopeID: scopeID)
-            resultIsError = false
-            resultMessage = outcome.summary
-        } catch {
-            resultIsError = true
-            resultMessage = error.localizedDescription
+    private var accountOptions: [(id: String, name: String)] {
+        (SnapshotStore.load()?.accounts ?? []).map { (id: $0.id, name: $0.name) }
+    }
+
+    /// `DatePicker` 要的是 `Date`；面板内部只关心时:分，年月日一律用当前日期占位，
+    /// 写回时只取 `.hour`/`.minute` 两个分量。
+    private var timeBinding: Binding<Date> {
+        Binding(
+            get: { Self.date(hour: hour, minute: minute) },
+            set: { newDate in
+                let components = Calendar.current.dateComponents([.hour, .minute], from: newDate)
+                hour = components.hour ?? hour
+                minute = components.minute ?? minute
+            }
+        )
+    }
+
+    private static func date(hour: Int, minute: Int) -> Date {
+        var components = DateComponents()
+        components.hour = hour
+        components.minute = minute
+        return Calendar.current.date(from: components) ?? Date()
+    }
+
+    private var statusText: String {
+        switch failedAction {
+        case .enable: return "启用失败"
+        case .disable: return "停用失败"
+        case .save: return "保存失败"
+        case nil: return isEnabled ? String(format: "每天 %02d:%02d · 已启用", hour, minute) : "未启用"
         }
+    }
+
+    /// 面板每次打开都重新校准——不只是读上次的草稿，是因为 plist 有可能在窗口关着
+    /// 的这段时间被外部改动过（用户手动删了文件、或者另一次总结窗口的面板已经保存
+    /// 过新配置）。`reconcileEnabledWithDisk()` 保证 `isEnabled` 不是过期的。
+    private func reloadFromSettings() {
+        isEnabled = MailSummaryAutomationSettings.reconcileEnabledWithDisk()
+        hour = MailSummaryAutomationSettings.hour
+        minute = MailSummaryAutomationSettings.minute
+        scopeID = MailSummaryAutomationSettings.scopeID ?? currentScopeID
+        failedAction = nil
+    }
+
+    /// Toggle 打开 与「保存」共用同一条装载路径——两者的语义都是"用当前面板草稿去
+    /// (重新) 装载"，区别只是失败时该说"启用失败"还是"保存失败"。
+    private func performInstall(action: Action) {
+        failedAction = nil
+        isBusy = true
+        do {
+            try MailSummaryAutomationInstaller.install(scopeID: scopeID, hour: hour, minute: minute)
+            isEnabled = true
+        } catch {
+            failedAction = action
+            // 装载失败不代表"之前那份"也失效了——用磁盘上 plist 是否存在重新校准，
+            // 而不是简单地把 isEnabled 悲观地拍成 false。
+            isEnabled = MailSummaryAutomationSettings.reconcileEnabledWithDisk()
+        }
+        isBusy = false
+    }
+
+    private func performUninstall() {
+        failedAction = nil
+        isBusy = true
+        MailSummaryAutomationInstaller.uninstall()
+        isEnabled = false
+        isBusy = false
+    }
+}
+
+/// 纯渲染的面板内容：不读 `SnapshotStore`、不读/写 `MailSummaryAutomationSettings`、
+/// 不调 `MailSummaryAutomationInstaller`——所有状态都是入参/绑定。渲染验证 harness
+/// 用 `.constant(...)` 绑定 + 手造 `accountOptions` 就能重现任意面板状态。
+struct MailSummaryAutomationPanelContent: View {
+    let statusText: String
+    let statusIsError: Bool
+    let isEnabled: Binding<Bool>
+    let time: Binding<Date>
+    let scopeID: Binding<String>
+    let accountOptions: [(id: String, name: String)]
+    let isBusy: Bool
+    let onToggle: (Bool) -> Void
+    let onSave: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(statusText)
+                .font(.caption)
+                .foregroundStyle(statusIsError ? Color.red : Color.secondary)
+
+            Toggle("每日自动总结", isOn: Binding(
+                get: { isEnabled.wrappedValue },
+                set: { onToggle($0) }
+            ))
+            .disabled(isBusy)
+
+            DatePicker("运行时间", selection: time, displayedComponents: .hourAndMinute)
+                .disabled(isBusy)
+
+            Picker("总结范围", selection: scopeID) {
+                Text("全部收件箱").tag(MailScope.all)
+                ForEach(accountOptions, id: \.id) { option in
+                    Text(option.name).tag(MailScope.accountPrefix + option.id)
+                }
+            }
+            .disabled(isBusy)
+
+            // 只在已启用时给「保存」——没启用的话改时间/范围只是在编辑草稿，
+            // 真正生效的时机是打开 Toggle 那一刻（用当前草稿装载）。
+            if isEnabled.wrappedValue {
+                Button("保存", action: onSave)
+                    .disabled(isBusy)
+            }
+        }
+        .padding(14)
+        .frame(width: 260)
     }
 }
