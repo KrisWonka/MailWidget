@@ -235,7 +235,8 @@ struct MailSummaryContentView: View {
     /// `MailSummaryAutomationConfigButton`），这里不再是它的挂载点。
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
+            // 相对时间与标题同行（右侧小字）——用户要求对齐日报窗口"Gmail 日报 8月10日"的版式。
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(windowTitle.isEmpty ? "邮件总结" : windowTitle)
                     .font(.title3.weight(.semibold))
                 if let date = brief?.generatedAt {
