@@ -45,7 +45,7 @@ struct MailboxHeaderRow: View {
         if MailDeepLink.supportsMailSummary(scopeID: scopeID),
            let url = MailDeepLink.mailSummary(scopeID: scopeID) {
             Link(destination: url) {
-                Image(systemName: "text.magnifyingglass")
+                Image(systemName: "list.bullet.rectangle")
             }
             .buttonStyle(.plain)
             .font(.caption)
