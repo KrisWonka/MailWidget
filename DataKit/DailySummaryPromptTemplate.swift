@@ -73,10 +73,14 @@ enum DailySummaryPromptTemplate {
     1. Read <CURSOR_FILE>. If it contains a cursor from a previously verified successful or \
     verified zero-message run, that cursor is authoritative. Use the last 24 hours only when no \
     cursor exists.
-    2. Verify the connected Gmail profile is exactly \(DailySummaryConstants.expectedMailbox) \
-    before searching. On mismatch or missing access, stop and report the problem in Chinese \
-    without guessing.
-    3. Search the strict incremental window with `after:<unix> -in:spam -in:trash`.
+    2. Identify the connected Gmail profile. If it is exactly \(DailySummaryConstants.expectedMailbox), \
+    search normally. Otherwise treat the connected account as an aggregate inbox that receives \
+    \(DailySummaryConstants.expectedMailbox)'s mail by forwarding: continue, but add a \
+    `to:\(DailySummaryConstants.expectedMailbox)` filter to every search below so mail addressed \
+    to other accounts never enters the brief. Only stop and report the problem in Chinese when \
+    Gmail access itself is missing.
+    3. Search the strict incremental window with `after:<unix> -in:spam -in:trash`, plus the \
+    `to:` filter when step 2 requires it.
     4. Read enough message and thread body content to judge real urgency. Deduplicate by \
     underlying event, merging the same event across threads, forwards, and notifications.
 
@@ -154,7 +158,7 @@ enum DailySummaryPromptTemplate {
 
     ## Failure rules
 
-    On account mismatch, connector failure, or incomplete retrieval: do not overwrite the payload, \
+    On missing Gmail access, connector failure, or incomplete retrieval: do not overwrite the payload, \
     do not run the ingest command, and do not advance the cursor. Preserve the last verified \
     publication and report the failure in Chinese.
 
