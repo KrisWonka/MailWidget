@@ -156,13 +156,34 @@ enum DailySourceInstaller {
         claudeCandidatePaths.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
+    /// `--permission-mode auto`：让 headless 运行时的每次工具权限询问都交给模型分类器
+    /// 就地批准/拒绝，而不是等一个不存在的人来点「允许」——这正是 2026-08-25 那次
+    /// launchd 任务卡住近 3 小时（09:23 启动、12:17 才结束）的根因，日志里 agent 自己
+    /// 也留言指出"没带任何权限相关参数，可能在权限询问上静默卡住"。
+    ///
+    /// 特意不用 `--allowedTools`：跑 `claude --help` 实测它是**白名单**语义——
+    /// "Comma or space-separated list of tool names to allow"——只列 Bash/Read/Write/
+    /// Edit/Glob/Grep 会把没在名单里的 Gmail MCP 连接器工具一并挡掉，日报任务的核心
+    /// 步骤（读 Gmail）反而跑不了。`claude -p --permission-mode bogus` 报出的合法取值
+    /// 及其官方说明（从 CLI 内嵌文本核实）：
+    ///   'default' - Standard behavior, prompts for dangerous operations.
+    ///   'acceptEdits' - Auto-accept file edit operations.
+    ///   'bypassPermissions' - Bypass all permission checks (requires allowDangerouslySkipPermissions).
+    ///   'plan' - Planning mode, no actual tool execution.
+    ///   'dontAsk' - Don't prompt for permissions, deny if not pre-approved.
+    ///   'auto' - Use a model classifier to approve/deny permission prompts.
+    /// 'default' 就是现在卡住的那个模式；'dontAsk' 会静默拒绝一切没有预先批准的工具
+    /// （包括 MCP），等于把任务变成"跑完但什么也没做"；'bypassPermissions' 虽然同样
+    /// 不会卡住、也不缩小工具范围，但需要额外的 `allowDangerouslySkipPermissions`
+    /// 开关且对一个无人看管、每天自动执行的任务放开"全部跳过"偏激进。'auto' 是唯一
+    /// 既不缩小工具集、又保证不会再阻塞等待人工输入的选项，所以选它。
     static func installClaudeJob(hour: Int = 9, minute: Int = 7) throws -> Outcome {
         guard let claude = discoveredClaudePath else {
             throw InstallError.claudeExecutableNotFound
         }
         return try installLaunchAgent(
             sourceID: DailySource.claude,
-            commandTemplate: "\"\(claude)\" -p \"$(cat {PROMPT_FILE})\"",
+            commandTemplate: "\"\(claude)\" -p --permission-mode auto \"$(cat {PROMPT_FILE})\"",
             hour: hour,
             minute: minute
         )
@@ -240,6 +261,22 @@ enum DailySourceInstaller {
     /// staging 载荷写到了 13:23，App Group 却停在前一天，游标还自报 published）。
     /// 脚本自己跑一遍 ingest 不经过任何权限系统，是确定性的；只在 staging 载荷确实是
     /// 本次运行刚写的（20 分钟内）时才执行，避免把陈旧载荷盖到更新的发布上。
+    ///
+    /// 每次尝试都包了一层 20 分钟（1200s）看门狗，直接对应 2026-08-25 那次实录
+    /// （09:23 启动、12:17 才结束，近 3 小时）——`--permission-mode auto`（见
+    /// `installClaudeJob`）已经从源头堵死"等一个不存在的人点允许"这条卡死路径，这层
+    /// 超时是第二道保险：万一还有别的原因卡住（网络挂起、MCP 连接器无响应等），也不能
+    /// 让单次尝试吃掉一整个白天。
+    ///
+    /// 选择"后台 PID + kill"而不是 `perl -e 'alarm shift; exec @ARGV'`：macOS 没有
+    /// `/usr/bin/timeout`（已用 `ls` 实测确认不存在），perl 版能杀掉被 exec 替换的那
+    /// 一个进程，但 `claude -p` 会在权限询问、Bash 工具调用等场景 fork 出子进程——
+    /// `alarm`+`exec` 的 SIGALRM 只送到 exec 出来的那一个进程，杀不到它自己再 fork
+    /// 出来的子孙，会留下孤儿进程继续跑。这里改用 `set -m` 开启 job control 让每个
+    /// 后台任务拿到独立进程组，超时后 `kill -TERM -- -$pid`（负号 pid = 整个进程组）
+    /// 连子孙一起收，5 秒宽限期后 `kill -KILL` 兜底。已用两个最小复现脚本验证过：
+    /// (1) `sleep 10` 在 3 秒超时下确实提前终止、返回非零状态，脚本据此判定失败并进入
+    /// 重试；(2) 故意 fork 一个孙进程验证它也被杀死，不是只砍了直接子进程。
     static func runnerScript(command: String, fallbackIngest: (payloadPath: String, command: String)? = nil) -> String {
         let ingestBlock = fallbackIngest.map { ingest in
             """
@@ -260,14 +297,36 @@ enum DailySourceInstaller {
         #!/bin/bash
         # 由 MailWidget 生成。手工改动会在下次"一键添加"时被覆盖（改动前会自动备份）。
         set -uo pipefail
+        # 开 job control：让下面每个 `( ... ) &` 后台任务拿到独立进程组，超时时才能用
+        # `kill -TERM -- -$pid` 把它和它 fork 出来的子孙一并收掉，而不是只砍直接子进程。
+        set -m
 
         for attempt in 1 2 3; do
           echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] attempt ${attempt}/3"
-          if \(command); then
+
+          ( \(command) ) &
+          cmd_pid=$!
+          (
+            /bin/sleep 1200
+            if /bin/kill -0 "$cmd_pid" 2>/dev/null; then
+              echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] attempt ${attempt}/3 已跑满 20 分钟，判定挂死，终止进程组 -$cmd_pid" >&2
+              /bin/kill -TERM -- -"$cmd_pid" 2>/dev/null
+              /bin/sleep 5
+              /bin/kill -KILL -- -"$cmd_pid" 2>/dev/null
+            fi
+          ) &
+          watchdog_pid=$!
+
+          status=0
+          wait "$cmd_pid" || status=$?
+          /bin/kill "$watchdog_pid" 2>/dev/null
+          wait "$watchdog_pid" 2>/dev/null
+
+          if [ "$status" -eq 0 ]; then
             echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] ok"\(ingestBlock)
             exit 0
           fi
-          echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] failed, retrying in 60s"
+          echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] failed (exit ${status}), retrying in 60s"
           /bin/sleep 60
         done
 

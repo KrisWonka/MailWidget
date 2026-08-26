@@ -49,6 +49,10 @@ enum IngestCommand {
             let store = try DailySummaryStore()
             try store.save(summary)
             DailySourceSettings.recordSuccessfulIngest(source: source)
+            // 载荷已经落盘、退出码已经确定为「已发布」之后才刷新可用性 —— 这一步只是给
+            // 详情页/widget 补一份"这封信本地 Mail 里有没有"的旁路信息，查询本身失败
+            // （store 内部已吞掉）也不该让 ingest 从 0 变成别的码。
+            DailyLinkAvailabilityStore.refresh(for: summary.items.compactMap(\.messageIdHeader))
             WidgetCenter.shared.reloadTimelines(ofKind: DailySummaryConstants.kind)
             flushWidgetCenterRequests()
             print("已更新 Gmail 日报：\(summary.items.count) 条" + (source.map { "（来源 \($0)）" } ?? ""))

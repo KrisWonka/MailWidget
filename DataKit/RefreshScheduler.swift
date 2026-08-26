@@ -89,11 +89,26 @@ final class RefreshScheduler {
                     success = false
                 }
                 if success {
+                    Self.refreshDailyLinkAvailability()
                     WidgetCenter.shared.reloadAllTimelines()
                 }
                 continuation.resume(returning: success)
             }
         }
+    }
+
+    /// 每次快照刷新成功后，顺带把当前日报载荷（latest.json）里那几条 Message-ID
+    /// 重新查一遍本地 Mail 库，落盘到 `DailyLinkAvailabilityStore`——这样邮件晚些
+    /// IMAP 同步进 Mail 之后，日报详情页/widget 上的链接会在下一轮刷新自动从
+    /// 回落态（gmailURL）恢复成直达 Mail 的 `message://`（见 DailyBrief.mailURL
+    /// 的三态注释）。这只是"顺带"的一步，不是这个方法的主职责：`try?` 吞掉一切
+    /// 失败（还没收到过日报、App Group 不可用、库暂时不可读……），绝不能因为这一步
+    /// 出错就连累上面已经成功的快照刷新/reload。
+    private static func refreshDailyLinkAvailability() {
+        guard let summary = try? DailySummaryStore().load() else { return }
+        let headers = summary.items.compactMap(\.messageIdHeader)
+        guard !headers.isEmpty else { return }
+        DailyLinkAvailabilityStore.refresh(for: headers)
     }
 
     // MARK: - Envelope 文件监听（可测试入口）

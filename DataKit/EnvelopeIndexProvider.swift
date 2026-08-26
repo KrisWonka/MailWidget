@@ -86,7 +86,11 @@ final class EnvelopeIndexProvider: MailDataProvider {
         databaseURL.deletingLastPathComponent()
     }
 
-    private static func locateEnvelopeIndex(mailDirectory: URL) throws -> URL {
+    /// 访问级别从 `private` 放宽到 internal（2026-08-26，DailyLinkAvailability 需求）：
+    /// `MailLocalIndex.swift` 要打开自己的只读连接去查 `message_global_data`，需要复用
+    /// 这份"探测最新 V 目录、拼出 Envelope Index 路径"的逻辑，避免第二份实现漂移。
+    /// 行为完全不变，纯粹放宽可见性。
+    static func locateEnvelopeIndex(mailDirectory: URL) throws -> URL {
         let mailDir = mailDirectory
         guard let entries = try? FileManager.default.contentsOfDirectory(at: mailDir, includingPropertiesForKeys: nil) else {
             throw ProviderError.noMailDirectoryFound

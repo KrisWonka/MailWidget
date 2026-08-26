@@ -15,21 +15,45 @@ struct DailyBriefItem: Identifiable {
     let message: MessageSummary?
     let accountID: String?
 
+    /// 这封信是否已经同步进本地 Mail 库（整个 Envelope Index，不是快照那 50 封的
+    /// 窗口）：`true`/`false` 是 `MailLocalIndex.existsLocally` 查出的确定结论；
+    /// `nil` = 没有记录——查询失败、还没来得及查、或者 header 缺失，一律算"未知"。
+    /// 见下面 `mailURL` 的三态注释。
+    let isKnownLocallyAvailable: Bool?
+
+    /// 显式 init（而非纯用编译器合成的 memberwise init）：`isKnownLocallyAvailable`
+    /// 给了默认值 nil（未知），这样 widget 图库预览等既有的三参数调用点
+    /// （`DailySummaryWidget.swift` 的 placeholder）不用跟着这次改动一起改——
+    /// "未知"本来就是它们那种手写示例数据的正确语义。
+    init(item: DailySummaryItem, message: MessageSummary?, accountID: String?, isKnownLocallyAvailable: Bool? = nil) {
+        self.item = item
+        self.message = message
+        self.accountID = accountID
+        self.isKnownLocallyAvailable = isKnownLocallyAvailable
+    }
+
     var id: String { item.id }
 
     /// 只有真正关联到邮件、且那封信未读，才算「还需要关注」。关联不到的一律不计入——
     /// 宁可少数，也不要让右上角那个数字变成猜的。
     var isUnread: Bool { message?.isRead == false }
 
-    /// 在 Mail.app 里打开这封信的深链。
-    ///
-    /// **只取决于载荷里有没有 Message-ID，与快照是否关联到无关。** 快照只索引
-    /// `role == "inbox"` 的邮箱、每个最多 50 封；一封信不在这个窗口里（比如已归档到
-    /// 「所有邮件」）不代表 Mail 里没有它。早先版本拿"快照命中"当作跳转的前提，
-    /// 结果把本来能正确打开的邮件挡成了兜底——快照的作用只是锦上添花地显示真实
-    /// 发件人/主题/未读态，不该决定能不能跳。
+    /// 在 Mail.app 里打开这封信的深链；三态语义（2026-08-26 修复 `MCMailErrorDomain
+    /// error 1030`）：
+    /// - 载荷里没有 Message-ID → nil（同现状，回落 gmailURL）。
+    /// - `isKnownLocallyAvailable == false`（`MailLocalIndex` 明确查过整个本地
+    ///   Envelope Index，没找到这个 header）→ **nil**。这封信根本没同步进本地
+    ///   Mail（典型场景：日报总结的是 Gmail 里刚收到的新信，账户 IMAP 同步还没
+    ///   追上），给 `message://` 只会让 Mail 弹 1030 错误框，必须回落 gmailURL。
+    /// - `true` 或**没有记录**（未知——比如库不可读、还没来得及查）→ 照旧给
+    ///   `message://`。这是"宁可尝试也不误伤"的既有取向的延续：早先版本拿"快照
+    ///   命中"当跳转前提，结果把本来能正确打开的邮件挡成了兜底（快照只索引
+    ///   `role == "inbox"`、每个最多 50 封，没命中不代表 Mail 里没有它）——这次
+    ///   新增的是"整库查过、确认没有"这一条**更强**的否定证据，而不是重新引入
+    ///   "没证据就当没有"的旧毛病。
     var mailURL: URL? {
         guard let header = item.messageIdHeader else { return nil }
+        guard isKnownLocallyAvailable != false else { return nil }
         return MailMessageLink.url(forMessageIdHeader: header)
     }
 }
@@ -49,7 +73,15 @@ struct DailyBrief {
     /// 就能复用 MailWidget 那套 PageState（同一个 App Group key 格式）。
     static let scopeID = "gmail-daily"
 
-    static func resolve(summary: DailySummary?, snapshot: MailSnapshot?) -> DailyBrief? {
+    /// `linkAvailability`：header → 本地是否存在（`MailLocalIndex.existsLocally` 的
+    /// 结果，经 `DailyLinkAvailabilityStore` 落盘）。默认现读一次 store——widget
+    /// timeline 每次解析都会调用这里，读的是小文件不是重新查库，成本可忽略；
+    /// 单测/宿主详情页需要固定输入时可以直接传一份构造好的 map 进来。
+    static func resolve(
+        summary: DailySummary?,
+        snapshot: MailSnapshot?,
+        linkAvailability: [String: Bool] = DailyLinkAvailabilityStore().load()
+    ) -> DailyBrief? {
         guard let summary else { return nil }
 
         var messagesByID: [String: (message: MessageSummary, accountID: String)] = [:]
@@ -68,10 +100,12 @@ struct DailyBrief {
 
         let items = summary.items.map { item -> DailyBriefItem in
             let matched = item.messageIdHeader.flatMap { messagesByID[$0] }
+            let availability = item.messageIdHeader.flatMap { linkAvailability[$0] }
             return DailyBriefItem(
                 item: item,
                 message: matched?.message,
-                accountID: matched?.accountID
+                accountID: matched?.accountID,
+                isKnownLocallyAvailable: availability
             )
         }
 

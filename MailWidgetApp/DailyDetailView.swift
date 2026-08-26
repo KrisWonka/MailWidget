@@ -197,38 +197,19 @@ private struct DetailBriefCard: View {
             .frame(width: 7, height: 7)
     }
 
-    /// 与 widget 侧 `DailyBriefCard.destination` 同一套三级兜底：mailURL → 该邮箱账户 →
-    /// `gmailURL` 浏览器兜底。不再无差别 `openMailbox(accountName: nil)`——那只是把 Mail
-    /// 激活到"不知道哪个邮箱"，正是用户反馈的"跳到 Mail 里不知道哪个"。
-    ///
-    /// `brief.accountID`（关联到快照时的那个账户）几乎总是和 `mailURL` 同时为
-    /// 空/非空——两者都依赖同一个 `item.messageIdHeader`（参见 `DailyBrief.resolve`），
-    /// 所以真正会命中的兜底其实是第二档：解析出这份日报固定所属的邮箱账户
-    /// （`DailySummaryConstants.expectedMailbox`），与 widget 的 `DailySummaryProvider
-    /// .makeEntry()` 解析 `mailAccountID` 用的是同一个账户、同一种查法。
+    /// 与 widget 侧 `DailyBriefCard.destination` 同一套兜底：mailURL → `gmailURL`
+    /// 浏览器兜底。不再落到 `MailAppOpener.openMailbox(accountName:)`——那只是把 Mail
+    /// 激活到"不知道哪个邮箱"，正是用户反馈的"跳到 Mail 里不知道哪个"；日报条目
+    /// 要么落到那封信本身，要么落到它在 Gmail 网页版里的位置，没有中间态。
     private func openInMail() {
-        if let url = brief.mailURL {
-            let configuration = NSWorkspace.OpenConfiguration()
-            configuration.activates = true
-            NSWorkspace.shared.open(url, configuration: configuration)
-            // 乐观已读：用户正要去 Mail 读它，未读点立刻消失，不必等下一轮抓取。
-            if let header = brief.item.messageIdHeader {
-                SnapshotStore.applyLocalReadMark(messageIdHeader: header)
-            }
-            return
-        }
-
-        let snapshot = SnapshotStore.load()
-        let accountID = brief.accountID
-            ?? snapshot?.accounts.first(where: { $0.email == DailySummaryConstants.expectedMailbox })?.id
-        if let accountID, let accountName = snapshot?.accounts.first(where: { $0.id == accountID })?.name {
-            MailAppOpener.openMailbox(accountName: accountName)
-            return
-        }
-
+        let url = brief.mailURL ?? brief.item.gmailURL
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
-        NSWorkspace.shared.open(brief.item.gmailURL, configuration: configuration)
+        NSWorkspace.shared.open(url, configuration: configuration)
+        // 乐观已读：用户正要去读它，未读点立刻消失，不必等下一轮抓取。
+        if let header = brief.item.messageIdHeader {
+            SnapshotStore.applyLocalReadMark(messageIdHeader: header)
+        }
     }
 }
 

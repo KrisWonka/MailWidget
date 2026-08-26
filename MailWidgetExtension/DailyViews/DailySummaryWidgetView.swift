@@ -191,8 +191,7 @@ struct DailySummaryWidgetView: View {
             ForEach(Array(visible.enumerated()), id: \.element.id) { index, entry in
                 DailyBriefCard(
                     brief: entry,
-                    detailLines: detailLines,
-                    mailAccountID: mailAccountID
+                    detailLines: detailLines
                 )
                 if index < visible.count - 1 {
                     Divider()
@@ -200,8 +199,6 @@ struct DailySummaryWidgetView: View {
             }
         }
     }
-
-    private var mailAccountID: String? { entry.mailAccountID }
 
     // MARK: - 空态
 
@@ -230,7 +227,7 @@ struct DailySummaryWidgetView: View {
 }
 
 /// 一「份」：level 色条 + 未读点 + 标题 + 几行话总结。整块可点，直接进 Mail
-/// （有 Message-ID 就打开那封信，否则打开该账户的邮箱；都没有就退化成 gmailURL）。
+/// （有 Message-ID 且本地库确认存在就打开那封信，否则退化成 gmailURL）。
 ///
 /// 原来这里还接一行复用 MailWidget `MessageRow` 的原始邮件行（发件人/主题/相对
 /// 时间），已删除——这类通知网关邮件的发件人/主题跟 AI 标题并排纯属噪音，见文件
@@ -238,7 +235,6 @@ struct DailySummaryWidgetView: View {
 private struct DailyBriefCard: View {
     let brief: DailyBriefItem
     let detailLines: Int
-    let mailAccountID: String?
 
     var body: some View {
         Link(destination: destination) {
@@ -247,15 +243,11 @@ private struct DailyBriefCard: View {
         .buttonStyle(.plain)
     }
 
-    /// 始终落在 Mail.app 里：有 Message-ID 就打开那封信，否则打开该账户的邮箱。
+    /// 有 Message-ID 且本地 Mail 库确认存在就打开那封信；否则落到 Gmail 网页版。
+    /// 原来这里还有一档"打开该账户的邮箱"兜底——那只是把 Mail 激活到"不知道哪个
+    /// 邮箱"，对日报场景没意义（用户已反馈"跳到 Mail 不知道哪个"），已去掉。
     private var destination: URL {
-        if let url = brief.mailURL {
-            return url
-        }
-        if let url = MailDeepLink.mailbox(accountID: mailAccountID), mailAccountID != nil {
-            return url
-        }
-        return brief.item.gmailURL
+        brief.mailURL ?? brief.item.gmailURL
     }
 
     private var summaryBlock: some View {
