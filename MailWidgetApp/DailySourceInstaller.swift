@@ -192,10 +192,18 @@ enum DailySourceInstaller {
 
         try write(prompt, to: promptURL)
         try write(
-            runnerScript(command: commandTemplate.replacingOccurrences(
-                of: "{PROMPT_FILE}",
-                with: "\"\(promptURL.path)\""
-            )),
+            runnerScript(
+                command: commandTemplate.replacingOccurrences(
+                    of: "{PROMPT_FILE}",
+                    with: "\"\(promptURL.path)\""
+                ),
+                fallbackIngest: (
+                    payloadPath: dataDir.appendingPathComponent(
+                        DailySummaryConstants.summaryFilename
+                    ).path,
+                    command: DailySummaryPromptTemplate.ingestCommand(for: sourceID)
+                )
+            ),
             to: scriptURL
         )
         try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
@@ -227,8 +235,28 @@ enum DailySourceInstaller {
 
     /// 重试是为了覆盖 Gmail 连接器 tools fetch 的偶发超时——实测 `claude mcp list`
     /// 连续两次调用就出现过一次超时。无人值守的任务不能因为一次抖动就整天没有日报。
-    static func runnerScript(command: String) -> String {
-        """
+    /// `fallbackIngest` 是发布环节的兜底：agent 在 headless 模式下**可能拿不到执行
+    /// 命令的权限**，却仍在自己的输出里声称"ingest 退出码 0，已发布"（2026-08-25 实录：
+    /// staging 载荷写到了 13:23，App Group 却停在前一天，游标还自报 published）。
+    /// 脚本自己跑一遍 ingest 不经过任何权限系统，是确定性的；只在 staging 载荷确实是
+    /// 本次运行刚写的（20 分钟内）时才执行，避免把陈旧载荷盖到更新的发布上。
+    static func runnerScript(command: String, fallbackIngest: (payloadPath: String, command: String)? = nil) -> String {
+        let ingestBlock = fallbackIngest.map { ingest in
+            """
+
+              if [ -f "\(ingest.payloadPath)" ]; then
+                payload_age=$(( $(/bin/date +%s) - $(/usr/bin/stat -f %m "\(ingest.payloadPath)") ))
+                if [ "$payload_age" -lt 1200 ]; then
+                  echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] 兜底发布（载荷 ${payload_age}s 前写入）"
+                  \(ingest.command) || echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] 兜底发布失败"
+                else
+                  echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] 跳过兜底发布：载荷是 ${payload_age}s 前的旧件"
+                fi
+              fi
+            """
+        } ?? ""
+
+        return """
         #!/bin/bash
         # 由 MailWidget 生成。手工改动会在下次"一键添加"时被覆盖（改动前会自动备份）。
         set -uo pipefail
@@ -236,7 +264,7 @@ enum DailySourceInstaller {
         for attempt in 1 2 3; do
           echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] attempt ${attempt}/3"
           if \(command); then
-            echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] ok"
+            echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] ok"\(ingestBlock)
             exit 0
           fi
           echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] failed, retrying in 60s"

@@ -21,9 +21,20 @@ enum DailySummaryPromptTemplate {
     ///
     /// 取当前运行的 app bundle 而不是硬编码 `/Applications/...`：从别处运行的构建产物
     /// 渲染出来的模板会指向它自己，避免把用户引到一个并不存在的路径。
+    /// 2026-08-25 教训：这个属性曾被一个临时 harness 进程调用，于是把 harness 自己的
+    /// 路径渲染进了 prompt 与 launchd 脚本——agent 忠实执行了那条命令、拿到退出码 0，
+    /// 却什么也没发布，日报连着两天停在旧内容。所以只认"确实是 MailWidget.app 里的
+    /// 那个可执行文件"，其余一律回落到安装路径。
+    static let installedHostPath = "/Applications/MailWidget.app/Contents/MacOS/MailWidget"
+
     static var hostExecutableURL: URL {
-        Bundle.main.executableURL
-            ?? URL(fileURLWithPath: "/Applications/MailWidget.app/Contents/MacOS/MailWidget")
+        guard let executable = Bundle.main.executableURL,
+              executable.lastPathComponent == "MailWidget",
+              executable.pathComponents.contains("MailWidget.app")
+        else {
+            return URL(fileURLWithPath: installedHostPath)
+        }
+        return executable
     }
 
     static func ingestCommand(for sourceID: String) -> String {
