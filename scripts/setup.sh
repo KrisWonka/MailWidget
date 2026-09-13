@@ -17,6 +17,17 @@ die()   { printf '\n%s✗ %s%s\n\n' "${RED}" "$*" "${RESET}"; exit 1; }
 ask()   { local p="$1" d="${2:-}" r; read -r -p "  ${p}${d:+ [${d}]}: " r; printf '%s' "${r:-$d}"; }
 confirm() { local r; read -r -p "  $1 [Y/n]: " r; [[ -z "${r}" || "${r}" =~ ^[Yy] ]]; }
 
+# ── 0. 会话可访问性自检（TCC）────────────────────────────────────────────────
+# macOS 的隐私保护（TCC）：SSH/远程会话默认读不到 ~/Documents、~/Desktop 等目录。
+# 如果这份源码放在那种目录里、又是从 SSH 跑的，后面每一步碰源码都会 Operation
+# not permitted。所以开头先探一次——读不到自己所在目录就明确让用户改用终端 App。
+if ! /bin/ls "${ROOT_DIR}" >/dev/null 2>&1; then
+  die "读不到源码目录 ${ROOT_DIR}（Operation not permitted）。
+  这几乎总是因为你在 SSH / 远程会话里运行，而 macOS 不给远程会话访问文稿/桌面。
+  请直接在这台 Mac 前打开「终端」App，再跑一次本脚本；
+  或把源码移到不受保护的位置（如 ~/mailwidget-src）后重试。"
+fi
+
 # ── 1. 系统版本 ───────────────────────────────────────────────────────────────
 step "检查 macOS 版本"
 major="$(/usr/bin/sw_vers -productVersion | cut -d. -f1)"

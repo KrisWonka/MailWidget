@@ -145,11 +145,15 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Button(codexButtonTitle) { perform { try DailySourceInstaller.updateExistingCodexAutomation() } }
-                .disabled(DailySourceInstaller.existingCodexAutomationURL == nil)
+            CodexAutomationButtonContent(
+                hasExistingAutomation: DailySourceInstaller.existingCodexAutomationURL != nil,
+                codexPath: AgentCLILocator.path(for: .codex),
+                onUpdateExisting: { perform { try DailySourceInstaller.updateExistingCodexAutomation() } },
+                onInstallNew: { perform { try DailySourceInstaller.installCodexJob() } }
+            )
 
             Button("一键添加到 Claude…") { perform { try DailySourceInstaller.installClaudeJob() } }
-                .disabled(DailySourceInstaller.discoveredClaudePath == nil)
+                .disabled(AgentCLILocator.path(for: .claude) == nil)
 
             HStack {
                 Button("复制提示词") {
@@ -171,11 +175,6 @@ struct SettingsView: View {
         }
     }
 
-    private var codexButtonTitle: String {
-        DailySourceInstaller.existingCodexAutomationURL == nil
-            ? "未检测到 Codex 日报任务"
-            : "更新现有 Codex 任务的 ingest 路径"
-    }
 
     private var lastIngestDescription: String {
         guard let at = DailySourceSettings.lastIngestAt else {
@@ -602,6 +601,31 @@ struct MailboxFieldContent: View {
                     .font(.caption)
                     .foregroundStyle(Color.red)
             }
+        }
+    }
+}
+
+/// Codex 日报按钮的纯渲染内容：两态全由入参决定，不读 `DailySourceInstaller.
+/// existingCodexAutomationURL` / `AgentCLILocator.path(for:)` ——同一个拆分理由，
+/// 渲染验证 harness 能直接灌固定的 fixture（比如"没有历史 automation 且 codex
+/// 已装"）截图，不需要真机改动 `~/.codex/` 或已装的 CLI 状态才能出图。
+///
+/// - `hasExistingAutomation`：本机是否已有 `daily-gmail-summary` 历史任务
+///   （有游标要保护，只能"更新 ingest 路径"，不能新建/覆盖）。
+/// - `codexPath`：`AgentCLILocator.path(for: .codex)` 的探测结果，仅在
+///   `hasExistingAutomation == false` 的新装分支里决定按钮可用性与文案。
+struct CodexAutomationButtonContent: View {
+    let hasExistingAutomation: Bool
+    let codexPath: String?
+    let onUpdateExisting: () -> Void
+    let onInstallNew: () -> Void
+
+    var body: some View {
+        if hasExistingAutomation {
+            Button("更新现有 Codex 任务的 ingest 路径", action: onUpdateExisting)
+        } else {
+            Button(codexPath == nil ? "未检测到 Codex 命令行" : "一键添加到 Codex…", action: onInstallNew)
+                .disabled(codexPath == nil)
         }
     }
 }

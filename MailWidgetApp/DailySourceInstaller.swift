@@ -15,6 +15,7 @@ enum DailySourceInstaller {
     enum InstallError: LocalizedError {
         case unresolvedPlaceholders([String])
         case claudeExecutableNotFound
+        case codexExecutableNotFound
         case commandTemplateMissingPromptToken
         case writeFailed(String, underlying: Error)
         case launchctlFailed(String)
@@ -26,6 +27,8 @@ enum DailySourceInstaller {
                 return "模板仍有未替换的占位符：\(names.joined(separator: "、"))"
             case .claudeExecutableNotFound:
                 return "找不到 claude 可执行文件。请先安装 Claude Code，或改用「为其它 CLI agent 生成定时任务」并手填命令。"
+            case .codexExecutableNotFound:
+                return "找不到 codex 可执行文件。请先安装 Codex CLI，或改用「为其它 CLI agent 生成定时任务」并手填命令。"
             case .commandTemplateMissingPromptToken:
                 return "启动命令里必须包含 {PROMPT_FILE}，否则 agent 拿不到提示词。"
             case let .writeFailed(path, underlying):
@@ -144,17 +147,35 @@ enum DailySourceInstaller {
         )
     }
 
-    // MARK: - 出口 2：Claude（launchd）
+    // MARK: - 出口 1b：Codex（launchd，全新安装）
 
-    private static let claudeCandidatePaths = [
-        "\(NSHomeDirectory())/.local/bin/claude",
-        "/opt/homebrew/bin/claude",
-        "/usr/local/bin/claude",
-    ]
-
-    static var discoveredClaudePath: String? {
-        claudeCandidatePaths.first { FileManager.default.isExecutableFile(atPath: $0) }
+    /// 给"这台机器上从来没有 `daily-gmail-summary` 历史任务"的场景补一条路径——
+    /// 之前这类机器只有 `updateExistingCodexAutomation()` 一条腿，而它硬性要求
+    /// `existingCodexAutomationURL != nil`，新机器上按钮永远是灰的，Codex 用户完全
+    /// 没有可用出口。这里复用 `installLaunchAgent`（同一套 launchd + 20 分钟看门狗 +
+    /// 兜底 ingest 的 runner 脚本），跟 `installClaudeJob` 是同一形态，只是命令换成
+    /// `codex exec`。
+    ///
+    /// 命令形态照抄 `DailyRegenerator.arguments(for:prompt:)` 里已经在真机跑通的
+    /// 组合：`codex exec --help` 确认 PROMPT 是位置参数；`--skip-git-repo-check`
+    /// 是必需的——launchd 的工作目录不是 git 仓库，codex 默认的受信目录检查会直接
+    /// 拒绝执行（真机首跑实测命中过这个坑，`DailyRegenerator.swift:93-94` 同一注释）。
+    ///
+    /// 时间默认 09:00：日报另外两条路径分别是 Claude 09:07、邮件总结 08:50，
+    /// 三者故意错开，避免同时抢 launchd 或撞见彼此的日志。
+    static func installCodexJob(hour: Int = 9, minute: Int = 0) throws -> Outcome {
+        guard let codex = AgentCLILocator.path(for: .codex) else {
+            throw InstallError.codexExecutableNotFound
+        }
+        return try installLaunchAgent(
+            sourceID: DailySource.codex,
+            commandTemplate: "\"\(codex)\" exec --skip-git-repo-check \"$(cat {PROMPT_FILE})\"",
+            hour: hour,
+            minute: minute
+        )
     }
+
+    // MARK: - 出口 2：Claude（launchd）
 
     /// `--permission-mode auto`：让 headless 运行时的每次工具权限询问都交给模型分类器
     /// 就地批准/拒绝，而不是等一个不存在的人来点「允许」——这正是 2026-08-25 那次
@@ -178,7 +199,7 @@ enum DailySourceInstaller {
     /// 开关且对一个无人看管、每天自动执行的任务放开"全部跳过"偏激进。'auto' 是唯一
     /// 既不缩小工具集、又保证不会再阻塞等待人工输入的选项，所以选它。
     static func installClaudeJob(hour: Int = 9, minute: Int = 7) throws -> Outcome {
-        guard let claude = discoveredClaudePath else {
+        guard let claude = AgentCLILocator.path(for: .claude) else {
             throw InstallError.claudeExecutableNotFound
         }
         return try installLaunchAgent(
