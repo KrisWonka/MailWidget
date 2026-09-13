@@ -35,6 +35,11 @@ Claude 或 Codex 每天早上替你把邮件读一遍、写成中文简报。
 构建桌面小组件必须要完整版 Xcode，命令行工具不够。到 App Store 搜 Xcode 装，
 装完**打开一次**同意许可协议。
 
+⚠️ **如果你机器上已经有 Xcode 但打不开**（双击没反应，或终端里 `open -a Xcode` 报
+`-10664`）：那是 macOS 主动禁用了过旧的 Xcode——新系统会硬性要求配套版本的 Xcode
+（例如 macOS 27 要 Xcode 27+）。去 App Store 的「更新」里升级 Xcode 即可，免费。
+注意此时命令行 `xcodebuild` 往往还能正常工作，所以别被"构建没问题"误导。
+
 ### 2. 一张免费的 Apple 开发者证书
 
 不需要花钱，普通 Apple ID 就行：
