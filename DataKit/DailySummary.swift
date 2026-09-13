@@ -10,9 +10,47 @@ enum DailySummaryConstants {
     /// Widget kind。沿用原值：它是 extension 内部标识符，换掉没有收益，
     /// 只会让已有的 reload 调用点全部要跟着改。
     static let kind = "com.kris.GmailDailyWidget.daily"
-    static let expectedMailbox = "krisxia@umich.edu"
     static let summaryFilename = "latest.json"
     static let maximumItemCount = 6
+
+    /// App Group UserDefaults 里存日报邮箱的键。
+    private static let userMailboxKey = "userMailbox"
+
+    private static var sharedDefaults: UserDefaults? {
+        UserDefaults(suiteName: SharedConstants.appGroupIdentifier)
+    }
+
+    /// 用户的日报邮箱，去个人化之前是编译期常量 `"you@example.com"`——别人克隆
+    /// 仓库后永远收不到日报（`DailySummaryValidator` 会拿这个硬编码值挡掉所有载荷）。
+    /// 现在是运行时可配置项：读写 App Group `userMailbox` 键，空字符串一律视为"未设置"
+    /// （nil），这样调用方不用额外判断"空串"和"没有值"两种形态。
+    ///
+    /// 正常情况下不需要用户手填——`DailySummaryValidator.validate` 在这个值还是
+    /// nil 时会把第一份收到的日报载荷里的 `mailbox` 自动写回这里（首次投递自动认领），
+    /// 朋友装上后不用先去设置里配一遍邮箱。
+    static var configuredMailbox: String? {
+        get {
+            guard let value = sharedDefaults?.string(forKey: userMailboxKey),
+                  !value.isEmpty else {
+                return nil
+            }
+            return value
+        }
+        set {
+            guard let newValue, !newValue.isEmpty else {
+                sharedDefaults?.removeObject(forKey: userMailboxKey)
+                return
+            }
+            sharedDefaults?.set(newValue, forKey: userMailboxKey)
+        }
+    }
+
+    /// 保留原名供既有调用点（校验、模板渲染、schema 文案……）继续使用，语义变成
+    /// "当前配置的邮箱，未配置时是空字符串"。不删掉这个属性——调用点很多，删了要
+    /// 逐个改造成 `Optional`，收益不成比例。
+    static var expectedMailbox: String {
+        configuredMailbox ?? ""
+    }
 
     /// agent 与 App 的交接目录。刻意保留原路径：Codex automation 的 prompt 里
     /// 这个路径出现多次，不动它就少改一处、少一处出错机会。
@@ -98,9 +136,7 @@ enum DailySummaryValidator {
         guard summary.schemaVersion == 1 else {
             throw DailySummaryValidationError.unsupportedSchemaVersion(summary.schemaVersion)
         }
-        guard summary.mailbox == DailySummaryConstants.expectedMailbox else {
-            throw DailySummaryValidationError.unexpectedMailbox(summary.mailbox)
-        }
+        try validateMailbox(summary.mailbox)
         guard ISO8601DateParser.date(from: summary.generatedAt) != nil else {
             throw DailySummaryValidationError.invalidGeneratedAt(summary.generatedAt)
         }
@@ -123,6 +159,23 @@ enum DailySummaryValidator {
             try validateGmailURL(item.gmailURL, itemID: itemID)
             try validateMessageIDHeader(item.messageIdHeader, itemID: itemID)
         }
+    }
+
+    /// 邮箱校验：**配置了才校验**（不一致仍然拒收），**没配置则放行**并把这份载荷
+    /// 的 mailbox 自动写回配置——首次投递自动认领，克隆仓库的人不用先跑去设置里
+    /// 填一遍自己的邮箱。空字符串不算"认领"：那既不是一个可用的邮箱，也不该把
+    /// "未配置"悄悄伪装成"配置成了空串"。
+    private static func validateMailbox(_ mailbox: String) throws {
+        if let configured = DailySummaryConstants.configuredMailbox {
+            guard mailbox == configured else {
+                throw DailySummaryValidationError.unexpectedMailbox(mailbox)
+            }
+            return
+        }
+        guard !mailbox.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw DailySummaryValidationError.unexpectedMailbox(mailbox)
+        }
+        DailySummaryConstants.configuredMailbox = mailbox
     }
 
     /// 只在字段存在时校验。要求：去空白后非空、不含尖括号（`MailDeepLink` 自己补

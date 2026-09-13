@@ -4,10 +4,22 @@
 // SnapshotStore.swift has no path-injection point (containerURL / fallbackDirectoryURL are private,
 // computed straight from FileManager) — see spec.md's own comment that it falls back to
 // ~/Library/Application Support/MailWidget/snapshot.json when the App Group container is
-// unavailable (as it is expected to be for a plain unit-test bundle with no app-group entitlement).
-// Since we cannot inject a scratch path, every test below operates on whatever
-// `SnapshotStore.snapshotFileURL` really resolves to, and backs up + restores that exact file around
-// the test so a real snapshot.json belonging to the user/app is never lost.
+// unavailable. In practice `FileManager.containerURL(forSecurityApplicationGroupIdentifier:)`
+// almost never returns nil for an unsandboxed process (confirmed empirically across several
+// arbitrary identifiers, entitled or not) — the "falls back to Application Support" branch is
+// nearly dead code outside a real App Sandbox. What DataKitTests' *own* bundle actually has is no
+// `com.apple.security.application-groups` entitlement of its own (it's a standalone unit-test
+// bundle, not hosted inside MailWidgetApp — see project.yml), so `SharedConstants.appGroupIdentifier`
+// resolves to its level-3 fallback (`"com.kris.mailwidget"`, no Team ID prefix). Creating a *brand
+// new, never-before-provisioned* directory under `~/Library/Group Containers/` for that identifier
+// then hits macOS's containermanagerd gate and fails with EPERM — a real, reproducible failure of
+// this specific test process's OS-level permissions, not a defect in SnapshotStore's own
+// load/save/decode logic (which is what this file actually means to exercise). Since we cannot
+// inject a scratch path, every test below operates on whatever `SnapshotStore.snapshotFileURL`
+// really resolves to, backs up + restores that exact file around the test so a real snapshot.json
+// belonging to the user/app is never lost, and treats "this process isn't allowed to touch that
+// path at all" as a skip rather than a failure — same philosophy as the pre-existing "resolved to
+// nil" skip below, just covering the "resolved to something, but unusable here" case too.
 
 import XCTest
 import Foundation
@@ -69,7 +81,28 @@ final class SnapshotStoreTests: XCTestCase {
             throw XCTSkip("SnapshotStore.snapshotFileURL resolved to nil (no App Group container and no Application Support directory available in this test process) — cannot exercise save/load.")
         }
         let fileManager = FileManager.default
+        let directory = url.deletingLastPathComponent()
         let existedBefore = fileManager.fileExists(atPath: url.path)
+
+        // Probe writability *before* touching anything: on a fresh machine (or this test
+        // bundle's own, unentitled process — see the file-header note above) the resolved
+        // directory may be a brand-new, never-before-provisioned `~/Library/Group Containers/`
+        // path that this process has no OS permission to create. That's an environment
+        // limitation of this test process, not a bug in SnapshotStore's load/save/decode logic,
+        // so it should skip cleanly instead of failing with a confusing error surfaced from deep
+        // inside `SnapshotStore.save()`.
+        if !existedBefore {
+            do {
+                try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            } catch {
+                throw XCTSkip(
+                    "Cannot create \(directory.path) in this process (\(error.localizedDescription)) — " +
+                    "likely an unentitled App Group container path this test process isn't allowed to " +
+                    "provision. Cannot exercise save/load here."
+                )
+            }
+        }
+
         let backupData = existedBefore ? try? Data(contentsOf: url) : nil
         if existedBefore && backupData == nil {
             throw XCTSkip("A snapshot.json exists at \(url.path) but could not be read for backup — refusing to touch it.")

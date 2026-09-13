@@ -15,6 +15,13 @@ enum DailySummaryPromptTemplate {
         case dataDirectory = "<DATA_DIR>"
         case ingestCommand = "<INGEST_CMD>"
         case cursorFile = "<CURSOR_FILE>"
+        /// 邮箱未配置时的哨兵。`DailySummaryConstants.configuredMailbox` 是 nil 时，
+        /// 正文里凡是原本要插入邮箱地址的地方都改插这一串，而不是悄悄渲染出一个
+        /// 空字符串——`unresolvedPlaceholders(in:)` 把它当成普通占位符一并检出，
+        /// 调用方（`DailySourceInstaller.renderedPrompt`、`DailyRegenerator`）已经
+        /// 在用这个检查兜底半成品模板，邮箱缺失因此复用同一条报错路径，不需要
+        /// 再新增一种"渲染不完整"的判定方式。
+        case mailboxNotConfigured = "<<MAILBOX_NOT_CONFIGURED>>"
     }
 
     /// 宿主 app 的可执行文件路径。渲染 `<INGEST_CMD>` 用。
@@ -73,10 +80,40 @@ enum DailySummaryPromptTemplate {
         Placeholder.allCases.filter { rendered.contains($0.rawValue) }
     }
 
+    // MARK: - 邮箱插值辅助
+
+    /// 正文里"直接写邮箱地址"的地方用这个：配置了就用配置值，没配置就插哨兵——
+    /// 绝不悄悄渲染出空字符串。
+    private static func mailboxOrSentinel() -> String {
+        DailySummaryConstants.configuredMailbox ?? Placeholder.mailboxNotConfigured.rawValue
+    }
+
+    /// gmailURL 示例里的邮箱是 URL query value，需要百分号编码（`@` → `%40`）。
+    /// 用 RFC 3986 unreserved 字符集当白名单，其余一律编码——这与原先硬编码的字面量
+    /// `you%40example.com`（只有 `@` 被编码）编码结果一致。
+    private static let urlValueAllowedCharacters: CharacterSet = {
+        var set = CharacterSet(charactersIn: "-._~")
+        set.formUnion(.alphanumerics)
+        return set
+    }()
+
+    private static func percentEncodedMailboxOrSentinel() -> String {
+        guard let mailbox = DailySummaryConstants.configuredMailbox else {
+            return Placeholder.mailboxNotConfigured.rawValue
+        }
+        return mailbox.addingPercentEncoding(withAllowedCharacters: urlValueAllowedCharacters) ?? mailbox
+    }
+
     // MARK: - 模板正文
 
-    static let body = """
-    You produce a daily Gmail decision brief for \(DailySummaryConstants.expectedMailbox) and \
+    /// 曾是 `static let`：Swift 的 `static let` 只在首次访问时求值一次，此后永久缓存。
+    /// 邮箱现在是运行时可变的（`DailySummaryConstants.configuredMailbox` 可以在首次
+    /// 投递自动认领时才第一次被写入），`static let` 会把"第一次访问这个属性那一刻"
+    /// 的邮箱（很可能还是空/哨兵）冻结进正文，后续配置变化再也反映不出来。改成
+    /// 计算属性，每次访问都用当前配置重新插值。
+    static var body: String {
+        """
+    You produce a daily Gmail decision brief for \(mailboxOrSentinel()) and \
     publish it to a macOS desktop widget. Write all user-visible text in concise, natural Chinese.
 
     ## Retrieval
@@ -84,10 +121,10 @@ enum DailySummaryPromptTemplate {
     1. Read <CURSOR_FILE>. If it contains a cursor from a previously verified successful or \
     verified zero-message run, that cursor is authoritative. Use the last 24 hours only when no \
     cursor exists.
-    2. Identify the connected Gmail profile. If it is exactly \(DailySummaryConstants.expectedMailbox), \
+    2. Identify the connected Gmail profile. If it is exactly \(mailboxOrSentinel()), \
     search normally. Otherwise treat the connected account as an aggregate inbox that receives \
-    \(DailySummaryConstants.expectedMailbox)'s mail by forwarding: continue, but add a \
-    `to:\(DailySummaryConstants.expectedMailbox)` filter to every search below so mail addressed \
+    \(mailboxOrSentinel())'s mail by forwarding: continue, but add a \
+    `to:\(mailboxOrSentinel())` filter to every search below so mail addressed \
     to other accounts never enters the brief. Only stop and report the problem in Chinese when \
     Gmail access itself is missing.
     3. Search the strict incremental window with `after:<unix> -in:spam -in:trash`, plus the \
@@ -121,7 +158,7 @@ enum DailySummaryPromptTemplate {
     `items`:
 
     - `schemaVersion` — the number `1`
-    - `mailbox` — `\(DailySummaryConstants.expectedMailbox)`
+    - `mailbox` — `\(mailboxOrSentinel())`
     - `generatedAt` — report time as RFC 3339 with its America/New_York UTC offset
     - `headline` — the concise Chinese lead sentence
     - `items` — at most \(DailySummaryConstants.maximumItemCount) objects, ranked \
@@ -134,7 +171,7 @@ enum DailySummaryPromptTemplate {
     - `level` — one of the five machine values above
     - `title` / `detail` — short, readable Chinese. No search queries, counts, or state paths.
     - `gmailURL` — `https://mail.google.com/mail/u/0/?authuser=\
-    krisxia%40umich.edu#all/<id>`, using that same `id`. Never put an email address in a \
+    \(percentEncodedMailboxOrSentinel())#all/<id>`, using that same `id`. Never put an email address in a \
     `/u/.../` path segment.
     - `messageIdHeader` — the RFC 5322 `Message-ID` of the exact message you summarized, with \
     surrounding angle brackets removed and no leading or trailing whitespace, e.g. \
@@ -175,4 +212,5 @@ enum DailySummaryPromptTemplate {
 
     A publishing failure must not roll back an otherwise verified Gmail run.
     """
+    }
 }

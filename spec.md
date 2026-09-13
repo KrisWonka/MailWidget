@@ -102,7 +102,7 @@ JSON 编解码统一用 `JSONEncoder/Decoder` 的 `.iso8601` 日期策略（fixt
 
 **契约 4 — widget 配置**：ConfigIntent 的可选项（账户/邮箱列表）由 frontend 从最近一次 `MailSnapshot` 枚举，不另设通道。
 
-**契约 5 — 共享设置**：UserDefaults suite = App Group ID（`LR8V7939D4.com.kris.mailwidget`）。键：`refreshIntervalMinutes`（Double，默认 2）。frontend 设置页写入，backend 的 RefreshScheduler 读取。
+**契约 5 — 共享设置**：UserDefaults suite = App Group ID（`<TeamID>.com.kris.mailwidget`）。键：`refreshIntervalMinutes`（Double，默认 2）。frontend 设置页写入，backend 的 RefreshScheduler 读取。
 
 **契约 6 — 刷新 API**（backend 提供）：
 `final class RefreshScheduler { static let shared: RefreshScheduler; func start(); func refreshNow() async -> Bool }`

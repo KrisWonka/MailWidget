@@ -45,7 +45,7 @@ enum MailSummarizer {
             case .noMailsAvailable:
                 return "No mails with a usable Message-ID header were fetched"
             case .engineNotFound(let path):
-                return "Summary engine executable not found at \(path)"
+                return "未找到 claude/codex 命令行，请在设置里指定路径（\(path)）"
             case .engineLaunchFailed(let message):
                 return "Failed to launch summary engine: \(message)"
             case .engineTimedOut:
@@ -269,17 +269,16 @@ enum MailSummarizer {
 
     // MARK: - 引擎子进程
 
-    /// 引擎 → 可执行文件路径。未知引擎（理论上到不了这里，`engine` getter 已经
-    /// fail-closed 到 "claude"）也回落 claude 路径，不返回 nil 让调用方多处理一层。
-    /// internal（非 private）方便 harness/单测 dump 两个分支的 (binary, args) 组装
-    /// 结果核对，不用真的起子进程。
-    static func executableURL(for engine: String) -> URL {
-        switch engine {
-        case engineCodex:
-            return URL(fileURLWithPath: "/opt/homebrew/bin/codex")
-        default:
-            return URL(fileURLWithPath: "/Users/kris/.local/bin/claude")
-        }
+    /// 引擎 → 可执行文件路径。曾经是写死的本机路径（`/Users/kris/.local/bin/claude`、
+    /// `/opt/homebrew/bin/codex`），别人克隆仓库后这两个 CLI 十有八九不在这些路径上；
+    /// 现在通过 `AgentCLILocator` 探测（用户设置里的覆盖路径 → 缓存 → 常见安装位置 →
+    /// 登录 shell `which`）。找不到时返回 nil——调用方（`runEngine`）据此抛出
+    /// `engineNotFound`，而不是拿一个必然打不开的路径去 `Process.run()`。
+    /// internal（非 private）方便 harness/单测核对解析结果，不用真的起子进程。
+    static func executableURL(for engine: String) -> URL? {
+        let cli: AgentCLI = engine == engineCodex ? .codex : .claude
+        guard let path = AgentCLILocator.path(for: cli) else { return nil }
+        return URL(fileURLWithPath: path)
     }
 
     /// 参数形态：codex 分支照抄 `DailyRegenerator.arguments(for:prompt:)` 里已经
@@ -297,7 +296,10 @@ enum MailSummarizer {
     }
 
     private static func runEngine(_ engine: String, prompt: String) throws -> String {
-        let resolvedExecutableURL = executableURL(for: engine)
+        let cli: AgentCLI = engine == engineCodex ? .codex : .claude
+        guard let resolvedExecutableURL = executableURL(for: engine) else {
+            throw SummarizeError.engineNotFound(cli.rawValue)
+        }
         guard FileManager.default.isExecutableFile(atPath: resolvedExecutableURL.path) else {
             throw SummarizeError.engineNotFound(resolvedExecutableURL.path)
         }

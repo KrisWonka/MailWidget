@@ -11,6 +11,22 @@
 - **MailWidget**（Small / Medium / Large / XL）— 实时收件箱
 - **Gmail 日报**（Medium / Large）— 外部 agent 每天推送的决策简报，见 `docs/superpowers/specs/`
 
+## 分享给别人
+
+这份源码是**去个人化**的：Team ID、App Group、邮箱地址、AI 命令行路径全部在构建时或
+运行时确定，没有任何一处写死某个人的身份。别人克隆下来跑一条命令就能用自己的 Apple
+签名身份装出属于他自己的版本。
+
+给朋友的说明见 **[SETUP.md](SETUP.md)**，他只需要跑：
+
+```bash
+~/Documents/mail_widget/scripts/setup.sh
+```
+
+前提是他机器上有完整版 Xcode 和一张免费的 Apple Development 证书（SETUP.md 里有步骤）。
+脚本会自动补齐 Homebrew / xcodegen / claude 或 codex 命令行，探测他的签名身份，
+构建安装，并把邮箱与引擎配置写好。
+
 ## 安装 / 更新
 
 **在 Mac 终端跑**：

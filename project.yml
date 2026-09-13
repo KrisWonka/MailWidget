@@ -6,7 +6,9 @@ options:
   createIntermediateGroups: true
 settings:
   base:
-    DEVELOPMENT_TEAM: LR8V7939D4
+    # 不写死个人 Team ID：scripts/install.sh 探测构建者自己的签名身份后，
+    # 用 MAILWIDGET_TEAM_ID 环境变量注入（xcodegen 展开 ${...}）。
+    DEVELOPMENT_TEAM: ${MAILWIDGET_TEAM_ID}
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "5.0"
     MACOSX_DEPLOYMENT_TARGET: "14.0"
@@ -39,12 +41,14 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: com.kris.mailwidget.url
             CFBundleURLSchemes: [mailwidget]
+        # 代码不再把 Team ID 编译进源码，运行时从这里读 App Group（见 SharedConstants）。
+        AppGroupIdentifier: $(DEVELOPMENT_TEAM).com.kris.mailwidget
     entitlements:
       path: Configs/MailWidgetApp.entitlements
       properties:
         com.apple.security.automation.apple-events: true
         com.apple.security.application-groups:
-          - LR8V7939D4.com.kris.mailwidget
+          - $(DEVELOPMENT_TEAM).com.kris.mailwidget
     dependencies:
       - target: MailWidgetExtension
         embed: true
@@ -67,6 +71,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleDisplayName: MailWidget
+        AppGroupIdentifier: $(DEVELOPMENT_TEAM).com.kris.mailwidget
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     entitlements:
@@ -74,7 +79,7 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.application-groups:
-          - LR8V7939D4.com.kris.mailwidget
+          - $(DEVELOPMENT_TEAM).com.kris.mailwidget
   DataKitTests:
     type: bundle.unit-test
     platform: macOS

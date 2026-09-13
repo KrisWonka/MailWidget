@@ -11,7 +11,7 @@
 |---|---|---|
 | 仓库 | `~/Documents/General/GmailDailyWidget` | `~/Documents/mail_widget` |
 | Bundle ID | `com.kris.GmailDailyWidget` | `com.kris.mailwidget` |
-| App Group | `LR8V7939D4.com.kris.GmailDailyWidget` | `LR8V7939D4.com.kris.mailwidget` |
+| App Group | `<TeamID>.com.kris.GmailDailyWidget` | `<TeamID>.com.kris.mailwidget` |
 | 宿主形态 | 普通窗口 app，关窗即退出 | `LSUIElement` 菜单栏常驻 |
 | 数据来源 | AI 生成的决策简报，外部推送 | 轮询 Apple Mail Envelope Index（2 分钟） |
 | 尺寸 | Medium / Large | Small / Medium / Large / ExtraLarge |
@@ -86,7 +86,7 @@ mail_widget/
     ├─ install.sh                 从 GmailDailyWidget 移植（§9）
     └─ update_note.applescript    从 GmailDailyWidget 搬入（Codex 的 Notes 路径仍在用）
 
-App Group: LR8V7939D4.com.kris.mailwidget
+App Group: <TeamID>.com.kris.mailwidget
     ├─ snapshot.json    ← RefreshScheduler 轮询 Apple Mail 写入
     └─ latest.json      ← --ingest 写入
 ```
@@ -207,7 +207,7 @@ JSON schema 校验（`DailySummaryValidator`）在仲裁**之后**执行，顺�
 
 ### 7.2 共享状态键
 
-存于 App Group UserDefaults（suite = `LR8V7939D4.com.kris.mailwidget`）：
+存于 App Group UserDefaults（suite = `<TeamID>.com.kris.mailwidget`）：
 
 | 键 | 类型 | 默认 | 用途 |
 |---|---|---|---|
@@ -287,7 +287,7 @@ App 渲染模板时把三个占位符替换为真实值：
 `headline`、`items`。`items` 至多 6 项，每项包含 `id`、`level`、`title`、`detail`、`gmailURL`，
 以及**可选**的 `messageIdHeader`。
 `level` ∈ {`immediate`,`today`,`week`,`optional`,`info`}。
-`gmailURL` 必须形如 `https://mail.google.com/mail/u/0/?authuser=krisxia%40umich.edu#all/<id>`，
+`gmailURL` 必须形如 `https://mail.google.com/mail/u/0/?authuser=you%40example.com#all/<id>`，
 且 `<id>` 与该项 `id` 一致。
 
 `messageIdHeader` 是被总结的那封信的 RFC 5322 `Message-ID`，**去掉尖括号、无首尾空白**，
@@ -382,7 +382,7 @@ Apple Notes 发布路径**保持启用**。它当前是活的（`memory.md` 记�
 
 - 若 `didMigrateGmailDailyData == true`，直接返回
 - 若新容器已存在 `latest.json`，标记完成并返回
-- 若旧容器 `LR8V7939D4.com.kris.GmailDailyWidget/latest.json` 存在，复制到新容器，标记完成
+- 若旧容器 `<TeamID>.com.kris.GmailDailyWidget/latest.json` 存在，复制到新容器，标记完成
 - **旧容器文件保留，不删除**
 
 ### 11.2 用户可感知的代价
@@ -397,7 +397,7 @@ Apple Notes 发布路径**保持启用**。它当前是活的（`memory.md` 记�
 
 设计初稿曾判断"MailWidget 的完全磁盘访问需要重新授权"，**该判断已被实测推翻**：
 MailWidget 本来就安装在 `/Applications/MailWidget.app`（bundle ID `com.kris.mailwidget`、
-Team `LR8V7939D4`），并非从 DerivedData 迁入。路径、bundle ID、签名身份三者都不变，
+Team `<TeamID>`），并非从 DerivedData 迁入。路径、bundle ID、签名身份三者都不变，
 TCC 授权随之保留。install.sh 结束时仅提示"若菜单栏数据源显示为 appleScript 则去重新授权"，
 不再声称必须重新授权。
 
@@ -418,7 +418,7 @@ widget 的 `kind` 保持 `com.kris.GmailDailyWidget.daily` 不变——它是 ex
 其签名校验、事务式替换、失败回滚、`pluginkit` 注册与校验逻辑全部保留。
 
 `project.yml` 需改为用 `$(APP_GROUP_IDENTIFIER)` 变量注入 App Group（现在是硬编码
-`LR8V7939D4.com.kris.mailwidget`），与 install.sh 的注入方式一致。
+`<TeamID>.com.kris.mailwidget`），与 install.sh 的注入方式一致。
 
 从 DerivedData 直接运行的旧方式不再是主路径：Codex automation 需要一个稳定的 `/Applications`
 路径才能调用 `--ingest`。

@@ -61,19 +61,27 @@ enum DailyRegenerator {
         reloadWidgets()
 
         let source = DailySourceSettings.selectedSource
-        guard let executableURL = executableURL(for: source) else {
+        guard let resolvedCLI = cli(for: source) else {
             log("未知日报源 \(source)，跳过重新生成。")
             finishEarly()
             return
         }
 
-        guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
-            log("找不到可执行文件：\(executableURL.path)（来源 \(source)）")
+        guard let cliPath = AgentCLILocator.path(for: resolvedCLI),
+              FileManager.default.isExecutableFile(atPath: cliPath) else {
+            log("未找到 \(resolvedCLI.rawValue) 命令行，请在设置里指定路径（来源 \(source)）")
             finishEarly()
             return
         }
+        let executableURL = URL(fileURLWithPath: cliPath)
 
         let prompt = DailySummaryPromptTemplate.render(for: source)
+        let unresolved = DailySummaryPromptTemplate.unresolvedPlaceholders(in: prompt)
+        guard unresolved.isEmpty else {
+            log("提示词仍有未解析占位符 \(unresolved.map(\.rawValue).joined(separator: "、"))，跳过本次重新生成（多半是日报邮箱尚未配置）")
+            finishEarly()
+            return
+        }
         let process = Process()
         process.executableURL = executableURL
         process.arguments = arguments(for: source, prompt: prompt)
@@ -115,12 +123,16 @@ enum DailyRegenerator {
 
     // MARK: - 按来源分发
 
-    private static func executableURL(for source: String) -> URL? {
+    /// 来源字符串 → CLI 种类。只有 codex/claude 两个内置来源有对应的可执行文件；
+    /// 其它来源（用户接入的任意 agent）走 `installLaunchAgent` 的独立命令模板，
+    /// 不经过这里，所以未知来源返回 nil 是"没有对应 CLI"而不是"CLI 没装"——
+    /// 调用方据此分别给出"未知来源"和"未找到命令行"两种不同的日志文案。
+    private static func cli(for source: String) -> AgentCLI? {
         switch source {
         case DailySource.codex:
-            return URL(fileURLWithPath: "/opt/homebrew/bin/codex")
+            return .codex
         case DailySource.claude:
-            return URL(fileURLWithPath: "/Users/kris/.local/bin/claude")
+            return .claude
         default:
             return nil
         }

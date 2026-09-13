@@ -100,7 +100,7 @@ private extension DailyBrief {
                     level: .today,
                     title: "项目更新需要今天确认",
                     detail: "发件人等待你的决定，下班前回复即可。",
-                    gmailURL: URL(string: "https://mail.google.com/mail/u/0/?authuser=krisxia%40umich.edu#all/placeholder-1")!
+                    gmailURL: URL(string: "https://mail.google.com/mail/u/0/?authuser=you%40example.com#all/placeholder-1")!
                 ),
                 message: MessageSummary(
                     id: "placeholder-1", messageIdHeader: nil,
@@ -117,7 +117,7 @@ private extension DailyBrief {
                     level: .info,
                     title: "实验室本周通知",
                     detail: "无需回复，了解即可。",
-                    gmailURL: URL(string: "https://mail.google.com/mail/u/0/?authuser=krisxia%40umich.edu#all/placeholder-2")!
+                    gmailURL: URL(string: "https://mail.google.com/mail/u/0/?authuser=you%40example.com#all/placeholder-2")!
                 ),
                 message: MessageSummary(
                     id: "placeholder-2", messageIdHeader: nil,

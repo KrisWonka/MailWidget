@@ -19,6 +19,17 @@ struct SettingsView: View {
     @State private var dailyStatus = ""
     @State private var dailyStatusIsError = false
 
+    /// 去个人化：日报邮箱不再写死在代码里，朋友装好后要能在这里填。跟
+    /// `OnboardingView` 用同一套校验标准（非空 + 含 "@"），失焦/每次改动即写回
+    /// `DailySummaryConstants.configuredMailbox`，不需要单独的「保存」按钮。
+    @State private var mailboxText = DailySummaryConstants.configuredMailbox ?? ""
+
+    /// 契约：`AgentCLILocator` 探测本机装了哪些 CLI。两行各自独立刷新/指定路径，
+    /// 跟 `dailySource`/`summaryEngine` 是两件事——这里只负责"这台机器上这两个
+    /// 命令有没有、在哪"，选哪个当日报源/总结引擎仍由下面各自的 Picker 决定。
+    @State private var claudePath: String? = AgentCLILocator.path(for: .claude)
+    @State private var codexPath: String? = AgentCLILocator.path(for: .codex)
+
     @State private var summaryEngine = MailSummarizer.engine
     @State private var summaryAutomationEnabled = false
     @State private var summaryAutomationHour = MailSummaryAutomationInstaller.defaultHour
@@ -53,6 +64,8 @@ struct SettingsView: View {
 
             mailSummarySection
 
+            agentCLISection
+
             Section("Startup") {
                 Toggle("Launch at Login", isOn: $launchAtLogin)
                     .onChange(of: launchAtLogin) { _, newValue in
@@ -81,19 +94,43 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding(20)
-        .frame(width: 460, height: 620)
+        .frame(width: 460, height: 680)
         .onAppear {
             lastRefreshDate = SnapshotStore.load()?.generatedAt
             probeReport = ProviderProbe.run()
             reloadDailyState()
             reloadMailSummaryState()
+            reloadAgentCLIState()
         }
     }
 
     // MARK: - Gmail 日报
 
+    private var trimmedMailboxText: String {
+        mailboxText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// 跟 `OnboardingView.mailboxIsValid` 同一条标准，两处各自维护而不是共享一个
+    /// 工具函数——都只有两行逻辑，抽出去反而多一层间接。
+    private var mailboxIsValid: Bool {
+        let value = trimmedMailboxText
+        guard !value.isEmpty, value.contains("@") else { return false }
+        let parts = value.split(separator: "@", maxSplits: 1, omittingEmptySubsequences: false)
+        return parts.count == 2 && !parts[0].isEmpty && parts[1].contains(".")
+    }
+
     private var gmailDailySection: some View {
         Section("Gmail 日报") {
+            MailboxFieldContent(
+                mailboxText: mailboxText,
+                isValid: mailboxIsValid,
+                onChangeText: { newValue in
+                    mailboxText = newValue
+                    let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                    DailySummaryConstants.configuredMailbox = trimmed.isEmpty ? nil : (mailboxIsValid ? trimmed : nil)
+                }
+            )
+
             Picker("日报源", selection: $dailySource) {
                 ForEach(knownSources, id: \.self) { source in
                     Text(source).tag(source)
@@ -151,6 +188,50 @@ struct SettingsView: View {
     private func reloadDailyState() {
         knownSources = DailySourceSettings.knownSources
         dailySource = DailySourceSettings.selectedSource
+    }
+
+    // MARK: - AI 命令行
+
+    /// 渲染逻辑抽成无状态的 `AgentCLISectionContent`（跟 `MailSummarySectionContent`
+    /// 同一个拆分理由）：这里只负责把探测结果和写回动作接进去，渲染验证 harness
+    /// 能直接灌固定的 fixture（比如"claude 已装、codex 未装"）截图，不用真机装好
+    /// 这两个 CLI 才能出一张有内容的截图。
+    private var agentCLISection: some View {
+        AgentCLISectionContent(
+            claudePath: claudePath,
+            codexPath: codexPath,
+            onChoosePath: choosePath,
+            onRedetect: redetect,
+            onReopenOnboarding: reopenOnboarding
+        )
+    }
+
+    private func reloadAgentCLIState() {
+        claudePath = AgentCLILocator.path(for: .claude)
+        codexPath = AgentCLILocator.path(for: .codex)
+    }
+
+    private func choosePath(for cli: AgentCLI) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "选择"
+        panel.message = "选择 \(cli.rawValue) 命令行可执行文件"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        AgentCLILocator.setOverride(url.path, for: cli)
+        reloadAgentCLIState()
+    }
+
+    /// 清掉手动指定的 override 后重新走一遍 `path(for:)`——用于用户挪动/重装了
+    /// CLI，想让 App 忘记旧的手动路径、重新自动探测的场景。
+    private func redetect(for cli: AgentCLI) {
+        AgentCLILocator.setOverride(nil, for: cli)
+        reloadAgentCLIState()
+    }
+
+    private func reopenOnboarding() {
+        (NSApp.delegate as? AppDelegate)?.showOnboardingWindow()
     }
 
     /// 所有出口共用同一条反馈路径：成功显示做了什么、写了哪些文件；失败原样显示错误，
@@ -473,5 +554,111 @@ private struct MailSummaryAutomationConfigButton: View {
         isEnabled = false
         isBusy = false
         onChange()
+    }
+}
+
+/// 「日报邮箱」输入框的纯渲染内容：不读/写 `DailySummaryConstants.configuredMailbox`，
+/// 文本和校验结果都是入参，改动通过回调交回 `SettingsView`——跟 `MailSummarySectionContent`
+/// 同一个拆分理由，渲染验证 harness 能直接灌固定字符串（合法/非法/空）截图。
+/// `OnboardingView.MailboxStepContent` 是同一形状但独立的一份——两处提示文案不同
+/// （这里多一句"未配置，日报无法发布"），各自维护比抽共享组件更省事。
+struct MailboxFieldContent: View {
+    let mailboxText: String
+    let isValid: Bool
+    let onChangeText: (String) -> Void
+
+    private var trimmed: String {
+        mailboxText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // 不能给 `TextField` 传非空标题——哪怕嵌在 `LabeledContent` 里，macOS
+            // 的 Form 仍会把标题参数当成一段持久文字标签渲染到框外（实测："you@
+            // example.com" 顶着框跑到右边，还被系统文本数据检测识别成邮箱链接、
+            // 变成蓝色可点文字，framework 层面的怪癖，不是布局宽度问题）。改成
+            // 空标题 + `.overlay` 手绘 placeholder，彻底绕开这条路径；标题信息
+            // 由 `LabeledContent` 的 "日报邮箱" 承担，这里补一个 `accessibilityLabel`
+            // 保住无障碍语义。
+            LabeledContent("日报邮箱") {
+                TextField("", text: Binding(get: { mailboxText }, set: onChangeText))
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel("日报邮箱")
+                    .overlay(alignment: .leading) {
+                        if mailboxText.isEmpty {
+                            Text("you@example.com")
+                                .foregroundStyle(.secondary)
+                                .padding(.leading, 6)
+                                .allowsHitTesting(false)
+                        }
+                    }
+            }
+            if trimmed.isEmpty {
+                Text("未配置，日报无法发布")
+                    .font(.caption)
+                    .foregroundStyle(Color.red)
+            } else if !isValid {
+                Text("这不像一个邮箱地址")
+                    .font(.caption)
+                    .foregroundStyle(Color.red)
+            }
+        }
+    }
+}
+
+/// 「AI 命令行」Section 的纯渲染内容：不读 `AgentCLILocator`，探测结果全是入参、
+/// 写回动作全是回调——跟 `MailSummarySectionContent` 同一个拆分理由，渲染验证
+/// harness 能直接灌固定字符串就重现"claude 已装 / codex 未装"这类截图。
+struct AgentCLISectionContent: View {
+    let claudePath: String?
+    let codexPath: String?
+    let onChoosePath: (AgentCLI) -> Void
+    let onRedetect: (AgentCLI) -> Void
+    let onReopenOnboarding: () -> Void
+
+    var body: some View {
+        Section("AI 命令行") {
+            AgentCLIStatusRow(
+                cli: .claude,
+                displayName: "Claude",
+                path: claudePath,
+                onChoosePath: { onChoosePath(.claude) },
+                onRedetect: { onRedetect(.claude) }
+            )
+            AgentCLIStatusRow(
+                cli: .codex,
+                displayName: "Codex",
+                path: codexPath,
+                onChoosePath: { onChoosePath(.codex) },
+                onRedetect: { onRedetect(.codex) }
+            )
+
+            Button("重新打开配置向导", action: onReopenOnboarding)
+
+            Text("日报和邮件总结引擎的选择在上面两个 Section 里；这里只负责这台机器上有没有装、装在哪。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct AgentCLIStatusRow: View {
+    let cli: AgentCLI
+    let displayName: String
+    let path: String?
+    let onChoosePath: () -> Void
+    let onRedetect: () -> Void
+
+    var body: some View {
+        LabeledContent(displayName) {
+            HStack(spacing: 8) {
+                Text(path ?? "未安装")
+                    .font(.caption)
+                    .foregroundStyle(path == nil ? Color.red : .secondary)
+                    .textSelection(.enabled)
+                Button("指定路径…", action: onChoosePath)
+                Button("重新探测", action: onRedetect)
+            }
+        }
     }
 }

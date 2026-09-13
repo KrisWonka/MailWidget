@@ -1,7 +1,26 @@
 import Foundation
 import XCTest
 
+/// 邮箱去个人化之后，`DailySummaryConstants.expectedMailbox` 不再是编译期常量
+/// `"you@example.com"`，而是读 App Group `userMailbox` 键的运行态值——大多数用例
+/// 需要一个已知的、固定的邮箱才能断言"匹配 / 不匹配"，所以每个测试类都在 setUp 里
+/// 显式配置这一个值，并在 tearDown 里还原成进入测试前的值（而不是无脑清空），
+/// 这样测试不会因为运行顺序或复用同一个 UserDefaults suite 而互相影响，也不会
+/// 冲掉这台机器上任何已经存在的真实配置。
+private let testMailbox = "friend@example.com"
+
 final class DailySummaryValidationTests: XCTestCase {
+    private var previousConfiguredMailbox: String?
+
+    override func setUpWithError() throws {
+        previousConfiguredMailbox = DailySummaryConstants.configuredMailbox
+        DailySummaryConstants.configuredMailbox = testMailbox
+    }
+
+    override func tearDownWithError() throws {
+        DailySummaryConstants.configuredMailbox = previousConfiguredMailbox
+    }
+
     func testValidSummaryPassesValidation() throws {
         XCTAssertNoThrow(try DailySummaryValidator.validate(makeSummary()))
     }
@@ -31,7 +50,7 @@ final class DailySummaryValidationTests: XCTestCase {
 
     func testRejectsNonHTTPSURL() {
         let item = makeItem(
-            url: "http://mail.google.com/mail/u/0/?authuser=krisxia%40umich.edu#all/message-1"
+            url: "http://mail.google.com/mail/u/0/?authuser=friend%40example.com#all/message-1"
         )
         XCTAssertThrowsError(try DailySummaryValidator.validate(makeSummary(items: [item]))) {
             XCTAssertEqual($0 as? DailySummaryValidationError, .invalidGmailURL(item.id))
@@ -40,7 +59,7 @@ final class DailySummaryValidationTests: XCTestCase {
 
     func testRejectsLookalikeGmailHost() {
         let item = makeItem(
-            url: "https://mail.google.com.example.org/mail/u/0/?authuser=krisxia%40umich.edu#all/message-1"
+            url: "https://mail.google.com.example.org/mail/u/0/?authuser=friend%40example.com#all/message-1"
         )
         XCTAssertThrowsError(try DailySummaryValidator.validate(makeSummary(items: [item]))) {
             XCTAssertEqual($0 as? DailySummaryValidationError, .invalidGmailURL(item.id))
@@ -49,7 +68,7 @@ final class DailySummaryValidationTests: XCTestCase {
 
     func testRejectsInboxRoute() {
         let item = makeItem(
-            url: "https://mail.google.com/mail/u/0/?authuser=krisxia%40umich.edu#inbox/message-1"
+            url: "https://mail.google.com/mail/u/0/?authuser=friend%40example.com#inbox/message-1"
         )
         XCTAssertThrowsError(try DailySummaryValidator.validate(makeSummary(items: [item]))) {
             XCTAssertEqual($0 as? DailySummaryValidationError, .invalidGmailURL(item.id))
@@ -74,7 +93,7 @@ final class DailySummaryValidationTests: XCTestCase {
 
     func testRejectsWrongMailboxPath() {
         let item = makeItem(
-            url: "https://mail.google.com/mail/u/1/?authuser=krisxia%40umich.edu#all/message-1"
+            url: "https://mail.google.com/mail/u/1/?authuser=friend%40example.com#all/message-1"
         )
         XCTAssertThrowsError(try DailySummaryValidator.validate(makeSummary(items: [item]))) {
             XCTAssertEqual($0 as? DailySummaryValidationError, .invalidGmailURL(item.id))
@@ -84,7 +103,7 @@ final class DailySummaryValidationTests: XCTestCase {
     func testRejectsMismatchedMessageID() {
         let item = makeItem(
             id: "message-1",
-            url: "https://mail.google.com/mail/u/0/?authuser=krisxia%40umich.edu#all/message-2"
+            url: "https://mail.google.com/mail/u/0/?authuser=friend%40example.com#all/message-2"
         )
         XCTAssertThrowsError(try DailySummaryValidator.validate(makeSummary(items: [item]))) {
             XCTAssertEqual($0 as? DailySummaryValidationError, .invalidGmailURL(item.id))
@@ -101,10 +120,13 @@ final class DailySummaryValidationTests: XCTestCase {
 
 final class DailySummaryStoreTests: XCTestCase {
     private var temporaryDirectory: URL!
+    private var previousConfiguredMailbox: String?
 
     override func setUpWithError() throws {
         temporaryDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        previousConfiguredMailbox = DailySummaryConstants.configuredMailbox
+        DailySummaryConstants.configuredMailbox = testMailbox
     }
 
     override func tearDownWithError() throws {
@@ -112,6 +134,7 @@ final class DailySummaryStoreTests: XCTestCase {
             try? FileManager.default.removeItem(at: temporaryDirectory)
         }
         temporaryDirectory = nil
+        DailySummaryConstants.configuredMailbox = previousConfiguredMailbox
     }
 
     func testSaveAndLoadRoundTrip() throws {
@@ -165,7 +188,7 @@ private func makeItem(
     id: String = "message-1",
     url: String? = nil
 ) -> DailySummaryItem {
-    let resolvedURL = url ?? "https://mail.google.com/mail/u/0/?authuser=krisxia%40umich.edu#all/\(id)"
+    let resolvedURL = url ?? "https://mail.google.com/mail/u/0/?authuser=friend%40example.com#all/\(id)"
     return DailySummaryItem(
         id: id,
         level: .today,
@@ -179,6 +202,16 @@ private func makeItem(
 /// `message://%3C…%3E`，也必须在缺省时保持向后兼容——老的日报载荷不带这个字段。
 final class DailySummaryMessageIDTests: XCTestCase {
     private let validHeader = "20260726160340.13cbcf6413d3d6b2@mail.joinhandshake.com"
+    private var previousConfiguredMailbox: String?
+
+    override func setUpWithError() throws {
+        previousConfiguredMailbox = DailySummaryConstants.configuredMailbox
+        DailySummaryConstants.configuredMailbox = testMailbox
+    }
+
+    override func tearDownWithError() throws {
+        DailySummaryConstants.configuredMailbox = previousConfiguredMailbox
+    }
 
     func testValidMessageIDPasses() {
         XCTAssertNoThrow(
@@ -240,7 +273,7 @@ final class DailySummaryMessageIDTests: XCTestCase {
               "level": "today",
               "title": "需要确认的邮件",
               "detail": "今天下班前回复",
-              "gmailURL": "https://mail.google.com/mail/u/0/?authuser=krisxia%40umich.edu#all/message-1"
+              "gmailURL": "https://mail.google.com/mail/u/0/?authuser=friend%40example.com#all/message-1"
             }
           ]
         }
@@ -262,7 +295,7 @@ private func makeItem(
     url: String? = nil,
     messageIdHeader: String?
 ) -> DailySummaryItem {
-    let resolvedURL = url ?? "https://mail.google.com/mail/u/0/?authuser=krisxia%40umich.edu#all/\(id)"
+    let resolvedURL = url ?? "https://mail.google.com/mail/u/0/?authuser=friend%40example.com#all/\(id)"
     return DailySummaryItem(
         id: id,
         level: .today,
@@ -271,4 +304,50 @@ private func makeItem(
         gmailURL: URL(string: resolvedURL)!,
         messageIdHeader: messageIdHeader
     )
+}
+
+/// 去个人化改造新增：邮箱不再是编译期常量，而是"首份载荷自动认领、之后按配置值
+/// 硬性校验"。这两条用例直接对应那句设计——(a) 未配置时放行且自动认领，
+/// (b) 已配置且不一致时仍然拒收——分开成专门的测试类，让这两条行为契约不会被
+/// 淹没在一堆别的邮箱断言里。
+final class DailySummaryMailboxConfigurationTests: XCTestCase {
+    private var previousConfiguredMailbox: String?
+
+    override func setUpWithError() throws {
+        previousConfiguredMailbox = DailySummaryConstants.configuredMailbox
+        DailySummaryConstants.configuredMailbox = nil
+    }
+
+    override func tearDownWithError() throws {
+        DailySummaryConstants.configuredMailbox = previousConfiguredMailbox
+    }
+
+    /// 没有配置邮箱时：校验放行，且把这份载荷的 mailbox 写回配置——这就是"首次
+    /// 投递自动认领"，克隆仓库的人不需要先去设置里填一遍自己的邮箱。
+    func testUnconfiguredMailboxIsClaimedFromFirstPayload() throws {
+        XCTAssertNil(DailySummaryConstants.configuredMailbox, "前置条件：还没配置")
+
+        let summary = makeSummary(mailbox: "newcomer@example.com", items: [])
+        XCTAssertNoThrow(try DailySummaryValidator.validate(summary))
+
+        XCTAssertEqual(
+            DailySummaryConstants.configuredMailbox, "newcomer@example.com",
+            "首次投递之后应当自动认领为配置值"
+        )
+    }
+
+    /// 已经配置过邮箱之后：不一致的载荷仍然被拒收，不会被第二次"认领"覆盖掉。
+    func testConfiguredMailboxStillRejectsMismatch() throws {
+        DailySummaryConstants.configuredMailbox = "owner@example.com"
+
+        let summary = makeSummary(mailbox: "intruder@example.com", items: [])
+        XCTAssertThrowsError(try DailySummaryValidator.validate(summary)) {
+            XCTAssertEqual($0 as? DailySummaryValidationError, .unexpectedMailbox("intruder@example.com"))
+        }
+
+        XCTAssertEqual(
+            DailySummaryConstants.configuredMailbox, "owner@example.com",
+            "被拒收的载荷不能悄悄改写已有配置"
+        )
+    }
 }

@@ -175,10 +175,14 @@ resolve_signing() {
 
   APP_GROUP_IDENTIFIER="${TEAM_ID}.com.kris.mailwidget"
 
-  # project.yml 里的 entitlements 是写死的 App Group 字面量。签名后会逐字校验，
-  # 但那时已经构建完了；这里先失败掉，省一次无用构建，并给出可操作的错误信息。
-  if ! /usr/bin/grep -q "${APP_GROUP_IDENTIFIER}" "${SPEC_FILE}"; then
-    fail "project.yml 中的 App Group 与签名团队不符。期望 ${APP_GROUP_IDENTIFIER}，请同步修改 project.yml。"
+  # project.yml 不再写死任何人的 Team ID：entitlements 与 Info.plist 里写的是
+  # $(DEVELOPMENT_TEAM).com.kris.mailwidget，而 DEVELOPMENT_TEAM 由下面这个环境
+  # 变量在 xcodegen generate 时注入。这样别人克隆下来用自己的签名身份就能直接构建。
+  export MAILWIDGET_TEAM_ID="${TEAM_ID}"
+
+  # 先确认模板确实是占位符形式，省得 project.yml 被改回字面量后签名到一半才发现。
+  if ! /usr/bin/grep -q '\$(DEVELOPMENT_TEAM)\.com\.kris\.mailwidget' "${SPEC_FILE}"; then
+    fail "project.yml 的 App Group 不是 \$(DEVELOPMENT_TEAM).com.kris.mailwidget 占位形式，无法按签名团队自动适配。"
   fi
 }
 
@@ -387,7 +391,11 @@ main() {
   log "使用 $(${xcodebuild_bin} -version | /usr/bin/head -n 1)（${DEVELOPER_DIR}）"
   if ! "${xcodebuild_bin}" -checkFirstLaunchStatus >/dev/null 2>&1; then
     log "完成 Xcode 首次启动组件与许可配置"
-    /usr/bin/sudo "${xcodebuild_bin}" -runFirstLaunch
+    # 实测大多数情况下不需要 sudo；先不带权限试一次，省掉一次密码提示。
+    if ! "${xcodebuild_bin}" -runFirstLaunch >/dev/null 2>&1; then
+      log "需要管理员权限完成 Xcode 组件安装"
+      /usr/bin/sudo "${xcodebuild_bin}" -runFirstLaunch
+    fi
   fi
 
   xcodegen_bin="$(command -v xcodegen || true)"

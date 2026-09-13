@@ -79,7 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DailySummaryMigration.runIfNeeded()
 
         RefreshScheduler.shared.start()
-        if SnapshotStore.load() == nil {
+        if Self.needsOnboarding {
             showOnboardingWindow()
             return
         }
@@ -324,7 +324,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mailSummaryWindow?.makeKeyAndOrderFront(nil)
     }
 
-    private func showOnboardingWindow() {
+    /// 去个人化后弹出条件从"快照为 nil"扩为三种任一成立：还没有快照（首次
+    /// 启动）、日报邮箱没配置、或本机 claude/codex 两个 CLI 都探测不到。三种
+    /// 情形单独看都会让朋友装完之后一脸茫然——快照会在首次刷新后很快出现，但
+    /// 邮箱和 CLI 不配置就永远不会自己出现，必须主动弹一次引导，而不是安静地
+    /// 假装配置好了。
+    private static var needsOnboarding: Bool {
+        if SnapshotStore.load() == nil { return true }
+        let mailbox = DailySummaryConstants.configuredMailbox?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if mailbox == nil || mailbox!.isEmpty { return true }
+        if !AgentCLILocator.isInstalled(.claude) && !AgentCLILocator.isInstalled(.codex) { return true }
+        return false
+    }
+
+    /// Not `private` — `SettingsView`'s「重新打开配置向导」按钮 calls this
+    /// directly via `NSApp.delegate as? AppDelegate`, same shape as
+    /// `showMailSummaryWindow(scopeID:)` above.
+    func showOnboardingWindow() {
         if onboardingWindow == nil {
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 460, height: 460),

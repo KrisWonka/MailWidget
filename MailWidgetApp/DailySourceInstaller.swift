@@ -438,7 +438,22 @@ enum DailySourceInstaller {
         """
     }
 
-    private static let jsonSchema = """
+    /// 导出的 JSON Schema 里，`gmailURL` 字段要求精确匹配"当前配置邮箱"的
+    /// Gmail 链接。原来这段正则是硬编码的个人邮箱字面量；去个人化后必须跟着
+    /// `DailySummaryConstants.expectedMailbox`走，不能留一个换了邮箱也不会变的
+    /// 死值。这里的转义是两层的：Swift 源码里的 `\\` 先被解成一个字面反斜杠，
+    /// 写进导出的 JSON 文本后又要被 JSON 的转义规则再解一层，JSON 解析完才是
+    /// 真正喂给正则引擎的那个反斜杠——所以要一个字面反斜杠，源码里得写 `\\\\`。
+    /// "@" 换成 "%40"，因为 Gmail 的 `authuser` 查询参数里 "@" 是这样被
+    /// percent-encode 的（`DailySummaryValidator.validateGmailURL` 校验的正是
+    /// 这个形态）。
+    private static var gmailURLPatternMailboxSegment: String {
+        let percentEncoded = DailySummaryConstants.expectedMailbox.replacingOccurrences(of: "@", with: "%40")
+        return percentEncoded.replacingOccurrences(of: ".", with: "\\\\.")
+    }
+
+    private static var jsonSchema: String {
+        """
     {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "title": "Gmail 日报载荷 (schemaVersion 1)",
@@ -467,7 +482,7 @@ enum DailySourceInstaller {
               "detail": { "type": "string" },
               "gmailURL": {
                 "type": "string",
-                "pattern": "^https://mail\\\\.google\\\\.com/mail/u/0/\\\\?authuser=krisxia%40umich\\\\.edu#all/.+$"
+                "pattern": "^https://mail\\\\.google\\\\.com/mail/u/0/\\\\?authuser=\(gmailURLPatternMailboxSegment)#all/.+$"
               },
               "messageIdHeader": {
                 "type": "string",
@@ -482,6 +497,7 @@ enum DailySourceInstaller {
       }
     }
     """
+    }
 }
 
 private extension ISO8601DateFormatter {

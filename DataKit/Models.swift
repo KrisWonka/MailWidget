@@ -3,11 +3,56 @@
 // 编译进宿主 app 和 widget extension 两个 target；类型均为 internal（默认访问级别）。
 
 import Foundation
+import Security
 
 /// App Group / 共享设置相关常量（契约 5）。
 enum SharedConstants {
     /// App Group ID，宿主 app 与 widget extension 共用的容器标识符。
-    static let appGroupIdentifier = "LR8V7939D4.com.kris.mailwidget"
+    ///
+    /// 不再是编译期字面量——旧值 `"<TeamID>.com.kris.mailwidget"` 里的 `<TeamID>`
+    /// 是原作者的 Apple Developer Team ID，别人克隆本仓库、用自己的签名身份构建后，
+    /// 这个 Team ID 对不上，App Group 容器直接打不开。改为运行时按三级优先取值：
+    ///
+    /// 1. **Info.plist 的 `AppGroupIdentifier` 键**——lead 在 project.yml 里给宿主 app
+    ///    与 widget extension 两个 target 注入 `$(DEVELOPMENT_TEAM).com.kris.mailwidget`，
+    ///    构建时随各自的 Team ID 展开成同一个真实 App Group ID。这是每个人在自己机器上
+    ///    构建后应该走到的正常路径。
+    /// 2. **自身 entitlements 里的 `com.apple.security.application-groups`**——
+    ///    Info.plist 键缺失时的兜底（比如老的构建产物、或绕开 project.yml 手动
+    ///    xcodebuild）。entitlements 是运行时唯一可信的"这个进程实际能用哪个 App Group"
+    ///    来源，直接问系统比再猜一次更可靠。
+    /// 3. **`"com.kris.mailwidget"`（不带 Team 前缀）**——两者都取不到时的最后兜底。
+    ///    这不是一个真的能打开的 App Group 容器 ID，但比返回 nil、崩溃、或让调用方
+    ///    每处都要处理"标识符不存在"更安全：`SnapshotStore` 等调用方已经有
+    ///    "App Group 容器不可用 → 降级到 Application Support" 的分支，喂一个必然查不到
+    ///    的字符串正好走进那条既有的降级路径，而不是引入一种新的失败形态。
+    static var appGroupIdentifier: String {
+        if let fromInfoPlist = Bundle.main.object(forInfoDictionaryKey: "AppGroupIdentifier") as? String,
+           !fromInfoPlist.isEmpty {
+            return fromInfoPlist
+        }
+        if let fromEntitlements = appGroupIdentifierFromEntitlements() {
+            return fromEntitlements
+        }
+        return "com.kris.mailwidget"
+    }
+
+    /// 读取当前进程自身的 code-signing entitlements，取
+    /// `com.apple.security.application-groups` 数组的第一项。
+    private static func appGroupIdentifierFromEntitlements() -> String? {
+        guard let task = SecTaskCreateFromSelf(nil) else { return nil }
+        guard let value = SecTaskCopyValueForEntitlement(
+            task,
+            "com.apple.security.application-groups" as CFString,
+            nil
+        ) else {
+            return nil
+        }
+        guard let groups = value as? [String], let first = groups.first, !first.isEmpty else {
+            return nil
+        }
+        return first
+    }
 
     /// UserDefaults（suite = App Group）里的刷新间隔键，Double，单位分钟。
     static let refreshIntervalMinutesKey = "refreshIntervalMinutes"

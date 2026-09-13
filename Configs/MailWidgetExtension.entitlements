@@ -6,7 +6,7 @@
 	<true/>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>LR8V7939D4.com.kris.mailwidget</string>
+		<string>$(DEVELOPMENT_TEAM).com.kris.mailwidget</string>
 	</array>
 </dict>
 </plist>

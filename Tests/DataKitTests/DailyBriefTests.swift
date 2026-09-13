@@ -4,6 +4,21 @@ import XCTest
 /// DailyBrief 把日报载荷和本地收件箱快照按 Message-ID 关联起来。关联结果直接决定
 /// 右上角那个未读数准不准、以及每一份下面能不能显示真实邮件行。
 final class DailyBriefTests: XCTestCase {
+    private var previousConfiguredMailbox: String?
+
+    /// `DailySummaryConstants.expectedMailbox` 去个人化之后不再是编译期常量
+    /// `"you@example.com"`，而是读 App Group 配置的运行态值。这里的用例只关心
+    /// "summary.mailbox 与 snapshot 里的 account.email 是同一个值"这件事本身，
+    /// 跟具体是哪个邮箱无关，但仍然显式配置一个已知值——不依赖"没配置时返回空
+    /// 字符串"这种隐含状态，测试意图更清楚，也不会被运行顺序影响。
+    override func setUpWithError() throws {
+        previousConfiguredMailbox = DailySummaryConstants.configuredMailbox
+        DailySummaryConstants.configuredMailbox = "friend@example.com"
+    }
+
+    override func tearDownWithError() throws {
+        DailySummaryConstants.configuredMailbox = previousConfiguredMailbox
+    }
 
     // MARK: - 构造样本
 
@@ -30,7 +45,7 @@ final class DailyBriefTests: XCTestCase {
     fileprivate func item(id: String, header: String?) -> DailySummaryItem {
         DailySummaryItem(
             id: id, level: .today, title: "标题", detail: "几行话总结",
-            gmailURL: URL(string: "https://mail.google.com/mail/u/0/?authuser=krisxia%40umich.edu#all/\(id)")!,
+            gmailURL: URL(string: "https://mail.google.com/mail/u/0/?authuser=friend%40example.com#all/\(id)")!,
             messageIdHeader: header
         )
     }
