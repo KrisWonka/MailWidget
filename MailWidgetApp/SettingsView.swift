@@ -29,6 +29,19 @@ struct SettingsView: View {
     /// 命令有没有、在哪"，选哪个当日报源/总结引擎仍由下面各自的 Picker 决定。
     @State private var claudePath: String? = AgentCLILocator.path(for: .claude)
     @State private var codexPath: String? = AgentCLILocator.path(for: .codex)
+    /// 真机部署实录：朋友的 codex 版本过旧，一跑就崩（"requires a newer version"），
+    /// 但 `isInstalled`/`path(for:)` 只看文件在不在，设置页一直显示"已安装"，看不出
+    /// 实际用不了。`AgentCLILocator.unusableReason(for:)` 会真的跑一次 `--version`
+    /// 子进程（带 10 分钟缓存）确认能不能启动，不能在 body 里直接调用——初值 nil
+    /// （"看起来可用"）只是渲染出第一帧前的占位，`.task`/`.onAppear` 会立刻拿真实
+    /// 结果覆盖掉。
+    @State private var claudeUnusableReason: String?
+    @State private var codexUnusableReason: String?
+
+    /// 真机部署实录：朋友的 Mail.app 一个真实账户都没有，收件箱 widget 和邮件总结
+    /// 全是空白，且没有任何提示。默认 `true`（宁可不确定时不显示这条提示），
+    /// `.onAppear`/`Re-check` 会覆盖成真实值。
+    @State private var mailAccountsConfigured = true
 
     @State private var summaryEngine = MailSummarizer.engine
     @State private var summaryAutomationEnabled = false
@@ -82,12 +95,22 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
                 LabeledContent("Active data source", value: probeReport.activeProvider)
 
+                LabeledContent("邮件 App 账户") {
+                    mailAccountsBadge
+                }
+                if !mailAccountsConfigured {
+                    Text("未配置（收件箱与总结将为空）——请先在「邮件」App 里添加一个邮箱账户。")
+                        .font(.caption)
+                        .foregroundStyle(Color.red)
+                }
+
                 HStack {
                     Button("Open System Settings…") {
                         openPrivacySettings()
                     }
                     Button("Re-check") {
                         probeReport = ProviderProbe.run()
+                        mailAccountsConfigured = ProviderProbe.hasConfiguredMailAccounts()
                     }
                 }
             }
@@ -98,10 +121,21 @@ struct SettingsView: View {
         .onAppear {
             lastRefreshDate = SnapshotStore.load()?.generatedAt
             probeReport = ProviderProbe.run()
+            mailAccountsConfigured = ProviderProbe.hasConfiguredMailAccounts()
             reloadDailyState()
             reloadMailSummaryState()
             reloadAgentCLIState()
+            refreshUnusableReasons()
         }
+    }
+
+    @ViewBuilder
+    private var mailAccountsBadge: some View {
+        Label(
+            mailAccountsConfigured ? "已配置" : "未配置",
+            systemImage: mailAccountsConfigured ? "checkmark.circle.fill" : "xmark.circle.fill"
+        )
+        .foregroundStyle(mailAccountsConfigured ? Color.green : Color.red)
     }
 
     // MARK: - Gmail 日报
@@ -199,6 +233,8 @@ struct SettingsView: View {
         AgentCLISectionContent(
             claudePath: claudePath,
             codexPath: codexPath,
+            claudeUnusableReason: claudeUnusableReason,
+            codexUnusableReason: codexUnusableReason,
             onChoosePath: choosePath,
             onRedetect: redetect,
             onReopenOnboarding: reopenOnboarding
@@ -208,6 +244,37 @@ struct SettingsView: View {
     private func reloadAgentCLIState() {
         claudePath = AgentCLILocator.path(for: .claude)
         codexPath = AgentCLILocator.path(for: .codex)
+    }
+
+    /// `AgentCLILocator.unusableReason(for:)` 真的会跑一次 `<cli> --version` 子进程
+    /// （内部带 10 分钟缓存），不能在视图 body 里直接调用——丢到后台队列跑，跟
+    /// `RefreshScheduler.refreshNow()` 的 `withCheckedContinuation` 包装同一个理由。
+    ///
+    /// `bypassCache: true` 用于"用户刚手动指定/重新探测了路径"这两个场景：一个新
+    /// 路径值得立刻验证一次，而不是被上一个（可能是别的路径、或很久以前）的缓存
+    /// 结果挡住长达 10 分钟——`AgentCLILocator.probeUnusableReason(executablePath:
+    /// cliDisplayName:)` 是探测逻辑本体，绕开缓存，正是为这种场景开的口子。
+    private func refreshUnusableReasons(bypassCache: Bool = false) {
+        let claudePathSnapshot = claudePath
+        let codexPathSnapshot = codexPath
+        Task {
+            let result: (claude: String?, codex: String?) = await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let claude: String?
+                    let codex: String?
+                    if bypassCache {
+                        claude = AgentCLILocator.probeUnusableReason(executablePath: claudePathSnapshot, cliDisplayName: AgentCLI.claude.rawValue)
+                        codex = AgentCLILocator.probeUnusableReason(executablePath: codexPathSnapshot, cliDisplayName: AgentCLI.codex.rawValue)
+                    } else {
+                        claude = AgentCLILocator.unusableReason(for: .claude)
+                        codex = AgentCLILocator.unusableReason(for: .codex)
+                    }
+                    continuation.resume(returning: (claude, codex))
+                }
+            }
+            claudeUnusableReason = result.claude
+            codexUnusableReason = result.codex
+        }
     }
 
     private func choosePath(for cli: AgentCLI) {
@@ -220,6 +287,7 @@ struct SettingsView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         AgentCLILocator.setOverride(url.path, for: cli)
         reloadAgentCLIState()
+        refreshUnusableReasons(bypassCache: true)
     }
 
     /// 清掉手动指定的 override 后重新走一遍 `path(for:)`——用于用户挪动/重装了
@@ -227,6 +295,7 @@ struct SettingsView: View {
     private func redetect(for cli: AgentCLI) {
         AgentCLILocator.setOverride(nil, for: cli)
         reloadAgentCLIState()
+        refreshUnusableReasons(bypassCache: true)
     }
 
     private func reopenOnboarding() {
@@ -636,6 +705,10 @@ struct CodexAutomationButtonContent: View {
 struct AgentCLISectionContent: View {
     let claudePath: String?
     let codexPath: String?
+    /// 非 nil = 已安装但跑不起来（比如版本太旧）；nil = 要么没装、要么装了且能跑。
+    /// 见 `AgentCLILocator.unusableReason(for:)` 顶部的真机部署实录注释。
+    let claudeUnusableReason: String?
+    let codexUnusableReason: String?
     let onChoosePath: (AgentCLI) -> Void
     let onRedetect: (AgentCLI) -> Void
     let onReopenOnboarding: () -> Void
@@ -646,6 +719,7 @@ struct AgentCLISectionContent: View {
                 cli: .claude,
                 displayName: "Claude",
                 path: claudePath,
+                unusableReason: claudeUnusableReason,
                 onChoosePath: { onChoosePath(.claude) },
                 onRedetect: { onRedetect(.claude) }
             )
@@ -653,6 +727,7 @@ struct AgentCLISectionContent: View {
                 cli: .codex,
                 displayName: "Codex",
                 path: codexPath,
+                unusableReason: codexUnusableReason,
                 onChoosePath: { onChoosePath(.codex) },
                 onRedetect: { onRedetect(.codex) }
             )
@@ -666,22 +741,53 @@ struct AgentCLISectionContent: View {
     }
 }
 
+/// 真机部署实录：朋友的 codex 文件在、可执行位也在，但一跑就崩（"requires a newer
+/// version of Codex"）——`path` 非 nil 只代表"文件存在"，不代表"能用"。三态：
+/// 未安装（红字"未安装"）/ 已安装且能用（灰字路径）/ 已安装但跑不起来（路径照旧
+/// 显示 + 橙色路径 + 红色原因 + 一句可操作的升级提示）。
 private struct AgentCLIStatusRow: View {
     let cli: AgentCLI
     let displayName: String
     let path: String?
+    let unusableReason: String?
     let onChoosePath: () -> Void
     let onRedetect: () -> Void
 
+    private var pathColor: Color {
+        if path == nil { return .red }
+        return unusableReason == nil ? .secondary : .orange
+    }
+
+    /// 给用户一句能直接抄的升级命令，而不是只说"版本太旧"让他自己去找怎么升级。
+    private var upgradeHint: String {
+        switch cli {
+        case .claude: return "curl -fsSL https://claude.ai/install.sh | bash"
+        case .codex: return "npm install -g @openai/codex@latest"
+        }
+    }
+
     var body: some View {
-        LabeledContent(displayName) {
-            HStack(spacing: 8) {
-                Text(path ?? "未安装")
-                    .font(.caption)
-                    .foregroundStyle(path == nil ? Color.red : .secondary)
-                    .textSelection(.enabled)
-                Button("指定路径…", action: onChoosePath)
-                Button("重新探测", action: onRedetect)
+        VStack(alignment: .leading, spacing: 4) {
+            LabeledContent(displayName) {
+                HStack(spacing: 8) {
+                    Text(path ?? "未安装")
+                        .font(.caption)
+                        .foregroundStyle(pathColor)
+                        .textSelection(.enabled)
+                    Button("指定路径…", action: onChoosePath)
+                    Button("重新探测", action: onRedetect)
+                }
+            }
+            if let unusableReason, path != nil {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("⚠ \(unusableReason)")
+                        .font(.caption2)
+                        .foregroundStyle(Color.red)
+                    Text("可能需要升级：\(upgradeHint)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
             }
         }
     }

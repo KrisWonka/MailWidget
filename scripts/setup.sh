@@ -95,6 +95,20 @@ find_cli() {  # $1=名字；在常见位置和登录 shell 里找
 }
 claude_path="$(find_cli claude || true)"
 codex_path="$(find_cli codex || true)"
+
+# 只看文件在不在是不够的：实测过一台机器上 codex 版本太旧，一跑就报
+# "requires a newer version"，而安装脚本还在显示"已检测到"，用户被误导很久。
+# 这里实际跑一次 --version，跑不通就当作不可用并提示升级。
+verify_cli() {
+  local path="$1" name="$2"
+  "$path" --version >/dev/null 2>&1 && return 0
+  warn "${name} 在 ${path}，但执行失败（可能版本过旧或安装损坏）"
+  echo "    升级办法：${name} = claude 时跑 curl -fsSL https://claude.ai/install.sh | bash"
+  echo "              ${name} = codex  时跑 npm install -g @openai/codex@latest"
+  return 1
+}
+[[ -n "${claude_path}" ]] && { verify_cli "${claude_path}" claude || claude_path=""; }
+[[ -n "${codex_path}" ]]  && { verify_cli "${codex_path}"  codex  || codex_path=""; }
 [[ -n "${claude_path}" ]] && ok "Claude：${claude_path}" || warn "Claude：未安装"
 [[ -n "${codex_path}" ]]  && ok "Codex：${codex_path}"  || warn "Codex：未安装"
 
@@ -123,10 +137,20 @@ fi
 # Gmail 日报靠的是 AI 命令行自己的 Gmail 连接器读邮件——这个 app 从不碰 Gmail 账号，
 # 也没有登录框。连接器没接上的话，日报每天都会静默失败，所以这里直接探测一次。
 if [[ -n "${engine}" ]]; then
+  # 注意：codex 的 Gmail 是以 `codex_apps/gmail.*` 工具形式提供的，**不出现在
+  # `codex mcp list` 里**——实测踩过这个坑，按 mcp list 判断会给出假阴性，害用户
+  # 以为没连上而反复折腾。claude 那边才是 mcp 连接器形态。
   gmail_ok=""
   case "${engine}" in
     claude) "${claude_path}" mcp list 2>/dev/null | grep -qiE 'gmail.*connected' && gmail_ok=1 ;;
-    codex)  "${codex_path}"  mcp list 2>/dev/null | grep -qi  'gmail'            && gmail_ok=1 ;;
+    codex)
+      # codex 无法静态判断，只能看配置里插件与 connector 是否都启用；
+      # 真正的验收是安装完成后用 app 里的「重新生成」跑一次。
+      if grep -q 'gmail@openai' "$HOME/.codex/config.toml" 2>/dev/null &&
+         ! grep -A1 'apps.connector' "$HOME/.codex/config.toml" 2>/dev/null | grep -q 'enabled = false'; then
+        gmail_ok=1
+      fi
+      ;;
   esac
   if [[ -n "${gmail_ok}" ]]; then
     ok "${engine} 已连接 Gmail —— 日报功能可用"
@@ -174,6 +198,25 @@ if [[ -n "${engine}" ]]; then
 fi
 
 # ── 9. 收尾 ─────────────────────────────────────────────────────────────────
+# ── Mail.app 是否配了真实账户 ─────────────────────────────────────────────
+# 实测过一台机器：Mail.app 里一个账户都没有（只有本地草稿箱），于是收件箱小组件
+# 和邮件总结全是空白，用户完全不知道为什么，以为软件坏了。这里提前说清楚。
+step "检查邮件 App"
+mail_db=$(/bin/ls -d "$HOME/Library/Mail"/V*/MailData/"Envelope Index" 2>/dev/null | tail -1)
+if [[ -n "${mail_db}" ]] && command -v sqlite3 >/dev/null 2>&1; then
+  remote_boxes=$(sqlite3 -readonly "${mail_db}" \
+    "select count(*) from mailboxes where url like 'imap://%' or url like 'ews://%' or url like 'pop://%';" 2>/dev/null)
+  if [[ "${remote_boxes:-0}" -gt 0 ]]; then
+    ok "邮件 App 里有 ${remote_boxes} 个邮箱"
+  else
+    warn "邮件 App 里还没有添加任何邮件账户"
+    echo "    收件箱小组件和邮件总结读的就是「邮件」App 的数据，没有账户它们会是空白。"
+    echo "    请打开「邮件」App → 添加账户 → 登录你的邮箱，等它同步完即可。"
+  fi
+else
+  warn "读不到邮件 App 的本地索引（可能还没授予完全磁盘访问，装完再看）"
+fi
+
 step "最后三件事（需要你手动点）"
 cat <<EOS
   1) ${BOLD}授予完全磁盘访问${RESET}：马上会打开系统设置，把列表里的 MailWidget 打开

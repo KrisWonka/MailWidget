@@ -72,6 +72,127 @@ enum AgentCLILocator {
         return FileManager.default.isExecutableFile(atPath: resolved)
     }
 
+    /// 文件存在 ≠ 能用——真机部署实录：朋友的 codex 0.137 文件在、可执行位也在，
+    /// 但一跑 `codex exec` 就崩（"The 'gpt-5.6-sol' model requires a newer version of
+    /// Codex"），而 `isInstalled` 只看文件存不存在，于是设置页一直显示"引擎就绪"，
+    /// 实际每次生成都失败。这里额外跑一次 `<cli> --version`（轻量、不花钱，不像
+    /// `exec` 那样会真的调用模型）来确认它至少能正常启动并退出成功。
+    ///
+    /// 返回 nil = 可用；返回非 nil = 不可用，内容是给用户看的中文原因。
+    ///
+    /// 结果缓存进 App Group（带时间戳），`unusableReasonCacheTTL` 内不重复探测——
+    /// 每次打开设置页都真的 fork 一次子进程会有明显的卡顿感。
+    static func unusableReason(for cli: AgentCLI) -> String? {
+        if case let .hit(cached) = cachedUnusableReason(for: cli) {
+            return cached
+        }
+        let reason = probeUnusableReason(executablePath: path(for: cli), cliDisplayName: cli.rawValue)
+        cacheUnusableReason(reason, for: cli)
+        return reason
+    }
+
+    /// 探测逻辑本体，绕开 App Group 缓存——供 `unusableReason(for:)` 调用，也供单测
+    /// 直接注入路径（不经过真实的候选路径扫描/App Group 读写）。
+    ///
+    /// `executablePath` 为 nil，或指向一个不存在/不可执行的文件时，直接返回"未找到"
+    /// 文案，不会启动任何进程（既不需要，也避免在缺失文件上浪费一次 15 秒的等待）。
+    static func probeUnusableReason(
+        executablePath: String?,
+        cliDisplayName: String,
+        timeout: TimeInterval = versionProbeTimeout
+    ) -> String? {
+        guard let executablePath, FileManager.default.isExecutableFile(atPath: executablePath) else {
+            return "未找到 \(cliDisplayName) 命令行，请在设置里指定路径"
+        }
+        return probeVersion(path: executablePath, cliDisplayName: cliDisplayName, timeout: timeout)
+    }
+
+    // MARK: - unusableReason 缓存
+
+    /// 10 分钟内不重复探测。
+    private static let unusableReasonCacheTTL: TimeInterval = 10 * 60
+
+    private enum UnusableReasonCacheLookup {
+        case hit(String?)
+        case miss
+    }
+
+    private static func unusableReasonKey(for cli: AgentCLI) -> String {
+        "cliUnusableReason.\(cli.rawValue)"
+    }
+
+    private static func unusableReasonCheckedAtKey(for cli: AgentCLI) -> String {
+        "cliUnusableReasonCheckedAt.\(cli.rawValue)"
+    }
+
+    private static func cachedUnusableReason(for cli: AgentCLI, now: Date = Date()) -> UnusableReasonCacheLookup {
+        guard let checkedAt = defaults?.object(forKey: unusableReasonCheckedAtKey(for: cli)) as? Date,
+              now.timeIntervalSince(checkedAt) < unusableReasonCacheTTL else {
+            return .miss
+        }
+        // 空字符串代表"上次探测结果是可用（nil）"，不能直接当"没有缓存"处理。
+        let stored = defaults?.string(forKey: unusableReasonKey(for: cli)) ?? ""
+        return .hit(stored.isEmpty ? nil : stored)
+    }
+
+    private static func cacheUnusableReason(_ reason: String?, for cli: AgentCLI, now: Date = Date()) {
+        defaults?.set(reason ?? "", forKey: unusableReasonKey(for: cli))
+        defaults?.set(now, forKey: unusableReasonCheckedAtKey(for: cli))
+    }
+
+    // MARK: - `--version` 探测
+
+    private static let versionProbeTimeout: TimeInterval = 15
+
+    /// 跑一次 `<path> --version`，超时或非零退出码都视为"不可用"。
+    /// 用看门狗队列 + `terminate()` 兜底超时——不用 `waitUntilExit` 的阻塞版本一等到底，
+    /// 否则一个卡死的 CLI 会把设置页/首次探测的调用方一起拖死 15 秒以上直到系统自己出手。
+    private static func probeVersion(path: String, cliDisplayName: String, timeout: TimeInterval) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = ["--version"]
+        process.standardInput = FileHandle.nullDevice
+        let outputPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = outputPipe
+
+        do {
+            try process.run()
+        } catch {
+            return "\(cliDisplayName) 无法启动（\(path)）：\(error.localizedDescription)"
+        }
+
+        let stateLock = NSLock()
+        var timedOut = false
+        let watchdogQueue = DispatchQueue(label: "com.kris.mailwidget.agentCLILocator.versionProbe")
+        watchdogQueue.asyncAfter(deadline: .now() + timeout) {
+            if process.isRunning {
+                stateLock.lock()
+                timedOut = true
+                stateLock.unlock()
+                process.terminate()
+            }
+        }
+
+        process.waitUntilExit()
+        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+
+        stateLock.lock()
+        let didTimeOut = timedOut
+        stateLock.unlock()
+
+        if didTimeOut {
+            return "\(cliDisplayName) --version 超时（超过 \(Int(timeout)) 秒），可能版本不兼容或已损坏"
+        }
+        guard process.terminationStatus == 0 else {
+            let output = String(decoding: outputData, as: UTF8.self)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let detail = output.isEmpty ? "退出码 \(process.terminationStatus)" : output
+            return "\(cliDisplayName) 不可用：\(detail)"
+        }
+        return nil
+    }
+
     // MARK: - App Group 键
 
     private static var defaults: UserDefaults? {

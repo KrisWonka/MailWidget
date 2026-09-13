@@ -37,11 +37,22 @@ struct OnboardingView: View {
 
     @State private var claudePath: String?
     @State private var codexPath: String?
+    /// 真机部署实录：朋友的 codex 文件在、可执行位也在，但一跑 `codex exec` 就崩
+    /// （"requires a newer version of Codex"），而向导只看"装没装"，于是这一步
+    /// 显示✓、实际每次生成都失败。`AgentCLILocator.unusableReason(for:)` 会真的跑
+    /// 一次 `--version`（带 10 分钟缓存），不能在 body 里直接调用，见 `refreshAll()`。
+    @State private var claudeUnusableReason: String?
+    @State private var codexUnusableReason: String?
     @State private var selectedEngineID: String?
 
     private var claudeInstalled: Bool { claudePath != nil }
     private var codexInstalled: Bool { codexPath != nil }
+    private var claudeUsable: Bool { claudeInstalled && claudeUnusableReason == nil }
+    private var codexUsable: Bool { codexInstalled && codexUnusableReason == nil }
     private var noEngineInstalled: Bool { !claudeInstalled && !codexInstalled }
+    /// 装了但一个能用的都没有——这一步不该显示"完成"，即使 `noEngineInstalled`
+    /// 为 false（文件确实都在）。
+    private var hasUsableEngine: Bool { claudeUsable || codexUsable }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -109,11 +120,13 @@ struct OnboardingView: View {
                         number: 5,
                         title: "AI 引擎",
                         detail: "日报和邮件总结都靠本机的 claude 或 codex 命令行生成，选一个当前已安装的作为默认引擎。",
-                        isDone: !noEngineInstalled
+                        isDone: hasUsableEngine
                     ) {
                         AgentEngineStepContent(
                             claudePath: claudePath,
                             codexPath: codexPath,
+                            claudeUnusableReason: claudeUnusableReason,
+                            codexUnusableReason: codexUnusableReason,
                             selectedEngineID: selectedEngineID,
                             onSelect: selectEngine,
                             onChoosePath: choosePath
@@ -141,7 +154,7 @@ struct OnboardingView: View {
         }
     }
 
-    private func refreshAll() {
+    private func refreshAll(bypassUnusableReasonCache: Bool = false) {
         probeReport = ProviderProbe.run()
         claudePath = AgentCLILocator.path(for: .claude)
         codexPath = AgentCLILocator.path(for: .codex)
@@ -150,6 +163,34 @@ struct OnboardingView: View {
                 claudeInstalled: claudePath != nil,
                 codexInstalled: codexPath != nil
             )
+        }
+        refreshUnusableReasons(bypassCache: bypassUnusableReasonCache)
+    }
+
+    /// `AgentCLILocator.unusableReason(for:)` 真的会跑一次 `<cli> --version` 子进程
+    /// （内部带 10 分钟缓存），不能在视图 body 里直接调用——丢到后台队列跑。
+    /// `bypassCache: true` 用于"用户刚手动指定了路径"这个场景：一个新路径值得
+    /// 立刻验证一次，不该被上一个路径的缓存结果挡住长达 10 分钟。
+    private func refreshUnusableReasons(bypassCache: Bool) {
+        let claudePathSnapshot = claudePath
+        let codexPathSnapshot = codexPath
+        Task {
+            let result: (claude: String?, codex: String?) = await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let claude: String?
+                    let codex: String?
+                    if bypassCache {
+                        claude = AgentCLILocator.probeUnusableReason(executablePath: claudePathSnapshot, cliDisplayName: AgentCLI.claude.rawValue)
+                        codex = AgentCLILocator.probeUnusableReason(executablePath: codexPathSnapshot, cliDisplayName: AgentCLI.codex.rawValue)
+                    } else {
+                        claude = AgentCLILocator.unusableReason(for: .claude)
+                        codex = AgentCLILocator.unusableReason(for: .codex)
+                    }
+                    continuation.resume(returning: (claude, codex))
+                }
+            }
+            claudeUnusableReason = result.claude
+            codexUnusableReason = result.codex
         }
     }
 
@@ -186,7 +227,7 @@ struct OnboardingView: View {
         panel.message = "选择 \(cli.rawValue) 命令行可执行文件"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         AgentCLILocator.setOverride(url.path, for: cli)
-        refreshAll()
+        refreshAll(bypassUnusableReasonCache: true)
     }
 
     private func openPrivacySettings() {
@@ -264,11 +305,21 @@ struct MailboxStepContent: View {
 struct AgentEngineStepContent: View {
     let claudePath: String?
     let codexPath: String?
+    /// 非 nil = 已安装但跑不起来；nil = 要么没装、要么装了且能跑。见
+    /// `AgentCLILocator.unusableReason(for:)` 顶部的真机部署实录注释。
+    let claudeUnusableReason: String?
+    let codexUnusableReason: String?
     let selectedEngineID: String?
     let onSelect: (String) -> Void
     let onChoosePath: (AgentCLI) -> Void
 
-    private var noEngineInstalled: Bool { claudePath == nil && codexPath == nil }
+    private var claudeInstalled: Bool { claudePath != nil }
+    private var codexInstalled: Bool { codexPath != nil }
+    private var claudeUsable: Bool { claudeInstalled && claudeUnusableReason == nil }
+    private var codexUsable: Bool { codexInstalled && codexUnusableReason == nil }
+    private var noEngineInstalled: Bool { !claudeInstalled && !codexInstalled }
+    /// 都装了，但一个能用的都没有——跟"完全没装"是两种不同的提示语，不该混在一起。
+    private var noUsableEngine: Bool { !noEngineInstalled && !claudeUsable && !codexUsable }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -276,6 +327,7 @@ struct AgentEngineStepContent: View {
                 cli: .claude,
                 displayName: "Claude",
                 path: claudePath,
+                unusableReason: claudeUnusableReason,
                 isSelected: selectedEngineID == AgentCLI.claude.rawValue,
                 onSelect: { onSelect(AgentCLI.claude.rawValue) },
                 onChoosePath: { onChoosePath(.claude) }
@@ -284,6 +336,7 @@ struct AgentEngineStepContent: View {
                 cli: .codex,
                 displayName: "Codex",
                 path: codexPath,
+                unusableReason: codexUnusableReason,
                 isSelected: selectedEngineID == AgentCLI.codex.rawValue,
                 onSelect: { onSelect(AgentCLI.codex.rawValue) },
                 onChoosePath: { onChoosePath(.codex) }
@@ -291,6 +344,11 @@ struct AgentEngineStepContent: View {
 
             if noEngineInstalled {
                 Text("需要先安装 claude 或 codex 命令行才能生成日报/总结。安装其中一个：`npm install -g @anthropic-ai/claude-code`（Claude）或参考 Codex CLI 的安装说明，装好后回到这一步重新选择。")
+                    .font(.caption)
+                    .foregroundStyle(Color.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if noUsableEngine {
+                Text("已安装的命令行都无法正常运行，日报/总结会持续失败——按下面每行的提示升级后，重新指定一次路径即可重新验证。")
                     .font(.caption)
                     .foregroundStyle(Color.red)
                     .fixedSize(horizontal: false, vertical: true)
@@ -303,36 +361,75 @@ private struct AgentEngineRow: View {
     let cli: AgentCLI
     let displayName: String
     let path: String?
+    let unusableReason: String?
     let isSelected: Bool
     let onSelect: () -> Void
     let onChoosePath: () -> Void
 
     private var isInstalled: Bool { path != nil }
+    private var isUsable: Bool { isInstalled && unusableReason == nil }
+
+    private var upgradeHint: String {
+        switch cli {
+        case .claude: return "curl -fsSL https://claude.ai/install.sh | bash"
+        case .codex: return "npm install -g @openai/codex@latest"
+        }
+    }
 
     var body: some View {
-        HStack(spacing: 8) {
-            Button(action: onSelect) {
-                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                    .foregroundStyle(isInstalled ? Color.accentColor : Color.secondary.opacity(0.4))
-            }
-            .buttonStyle(.plain)
-            .disabled(!isInstalled)
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Button(action: onSelect) {
+                    Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                        .foregroundStyle(isInstalled ? Color.accentColor : Color.secondary.opacity(0.4))
+                }
+                .buttonStyle(.plain)
+                .disabled(!isInstalled)
 
-            Image(systemName: isInstalled ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .foregroundStyle(isInstalled ? Color.green : Color.red)
+                statusIcon
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(displayName).font(.subheadline.bold())
-                Text(isInstalled ? "已检测到 \(path!)" : "未安装")
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(displayName).font(.subheadline.bold())
+                    Text(isInstalled ? "已检测到 \(path!)" : "未安装")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+
+                Spacer()
+
+                Button("手动指定路径…", action: onChoosePath)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
             }
 
-            Spacer()
+            // 已安装但跑不起来：三态里唯一新增的一档，路径照旧显示在上面那行，
+            // 这里只补一句原因 + 一条能直接抄的升级命令。
+            if let unusableReason, isInstalled {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("⚠ 已安装但无法运行：\(unusableReason)")
+                        .font(.caption2)
+                        .foregroundStyle(Color.red)
+                    Text("可能需要升级：\(upgradeHint)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+                .padding(.leading, 34)
+            }
+        }
+    }
 
-            Button("手动指定路径…", action: onChoosePath)
-                .font(.caption)
+    @ViewBuilder
+    private var statusIcon: some View {
+        if !isInstalled {
+            Image(systemName: "xmark.circle.fill")
+                .foregroundStyle(Color.red)
+        } else if !isUsable {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(Color.orange)
+        } else {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(Color.green)
         }
     }
 }

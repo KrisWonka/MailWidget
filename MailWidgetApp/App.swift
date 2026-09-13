@@ -79,6 +79,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DailySummaryMigration.runIfNeeded()
 
         RefreshScheduler.shared.start()
+        // 契约：收件箱 widget / 邮件总结在"Mail 里没有账户"时要能明确告知，而不是
+        // 显示看起来像"全部已读"的空白——见 `MailAccountStatusPublisher` 顶部注释。
+        MailAccountStatusPublisher.start()
         if Self.needsOnboarding {
             showOnboardingWindow()
             return
@@ -452,6 +455,9 @@ private struct MenuBarContentView: View {
     private func refreshNow() async {
         isRefreshing = true
         _ = await RefreshScheduler.shared.refreshNow()
+        // 顺带把"Mail 有没有账户"这个结论也重新探测一次——用户手动点"立即刷新"
+        // 通常正是因为刚去 Mail App 改过点什么（比如刚加完账户）。
+        MailAccountStatusPublisher.refresh()
         reload()
         isRefreshing = false
     }

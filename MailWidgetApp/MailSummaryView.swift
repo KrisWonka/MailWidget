@@ -98,6 +98,11 @@ final class MailSummaryModel: ObservableObject {
     @Published private(set) var brief: MailSummaryBrief?
     @Published private(set) var isGenerating = false
     @Published private(set) var lastError: String?
+    /// 真机部署实录：Mail.app 没有真实账户时，总结窗口原来只会显示"还没有总结/
+    /// 点重新总结生成一份"，看起来像是随便点一下就能修好的普通状态，而不是"这台
+    /// 机器压根没有可总结的邮件"。默认 `true`（宁可不确定时不显示这条提示）——
+    /// `refresh()` 会在窗口第一次显示前同步刷新成真实值。
+    @Published private(set) var hasConfiguredMailAccounts = true
 
     private let store = MailSummaryStore()
     private var pollTimer: Timer?
@@ -137,6 +142,10 @@ final class MailSummaryModel: ObservableObject {
     private func refresh() {
         isGenerating = MailSummarizer.isGenerating(scopeID: scopeID, now: Date())
         lastError = Self.sharedDefaults?.string(forKey: MailSummarizer.lastErrorKey(forScopeID: scopeID))
+        // 这个窗口跟宿主 app 是同一进程，可以直接调用（不像 widget extension 那样
+        // 要绕道 App Group 读结论）。查询本身是一次轻量 sqlite 读，跟这里已有的
+        // `store.load`/`SnapshotStore.load` 同一量级，不需要额外丢后台线程。
+        hasConfiguredMailAccounts = ProviderProbe.hasConfiguredMailAccounts()
         do {
             if let loaded = try store.load(scopeID: scopeID) {
                 brief = MailSummaryBrief.resolve(summary: loaded, snapshot: SnapshotStore.load())
@@ -195,6 +204,7 @@ struct MailSummaryView: View {
             brief: model.brief,
             isGenerating: model.isGenerating,
             lastError: model.lastError,
+            hasConfiguredMailAccounts: model.hasConfiguredMailAccounts,
             onRegenerate: { model.regenerate() }
         )
     }
@@ -209,6 +219,7 @@ struct MailSummaryContentView: View {
     let brief: MailSummaryBrief?
     let isGenerating: Bool
     let lastError: String?
+    let hasConfiguredMailAccounts: Bool
     let onRegenerate: () -> Void
 
     private static let relativeFormatter: RelativeDateTimeFormatter = {
@@ -276,7 +287,16 @@ struct MailSummaryContentView: View {
 
     @ViewBuilder
     private var content: some View {
-        if let brief, !brief.items.isEmpty {
+        // 优先级最高：没有账户就是没有账户，不管生成中/出错/还没生成过是什么状态，
+        // 都不该显示"点重新总结试试"——那只会让用户白等一次分钟级的生成。
+        if !hasConfiguredMailAccounts {
+            ContentUnavailableView(
+                "邮件 App 里还没有账户",
+                systemImage: "person.crop.circle.badge.exclamationmark",
+                description: Text("打开「邮件」App 添加一个邮箱账户后，回来点「重新总结」。")
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let brief, !brief.items.isEmpty {
             itemList(brief.items)
         } else if isGenerating {
             ContentUnavailableView(

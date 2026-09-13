@@ -29,11 +29,24 @@ struct MailWidgetView: View {
 
     @ViewBuilder
     private var contentView: some View {
-        if let resolved = entry.resolvedScope {
+        if let resolved = entry.resolvedScope, hasAnyAccounts {
             sizedView(for: resolved)
+        } else if MailAccountStatusReader.hasConfiguredMailAccounts == false {
+            NoMailAccountsView()
         } else {
             EmptyStateView()
         }
+    }
+
+    /// `entry.resolvedScope` can be non-nil with zero accounts: the Envelope Index
+    /// probe succeeds even when Mail.app has no real account configured (see
+    /// `ProviderProbe.hasConfiguredMailAccounts()`), which would otherwise render
+    /// indistinguishably from genuine inbox-zero via `sizedView`'s own empty
+    /// handling. Gate on the snapshot's actual account list, not just whether
+    /// resolution produced a `ResolvedScope`, so that case falls through to the
+    /// `NoMailAccountsView` branch above instead.
+    private var hasAnyAccounts: Bool {
+        !(entry.snapshot?.accounts.isEmpty ?? true)
     }
 
     @ViewBuilder

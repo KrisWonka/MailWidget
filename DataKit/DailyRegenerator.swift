@@ -7,6 +7,15 @@
 // 这里不等待、不解析 agent 是否真的成功发布了新日报：`--ingest` 成功时 App 自己会
 // reload；这里的 terminationHandler 只是异常兜底（agent 中途失败、被杀死等），
 // 确保"重新生成中"标志和 widget 不会永远卡住。
+//
+// ⚠️ 真机部署实录（2026-09）：上一段注释里"agent 自己执行 --ingest"这个假设并不总是
+// 成立——朋友机器上 codex 把 latest.json 写到了交接目录，却从没执行 --ingest，
+// App Group 里没有日报、widget 一直是空的，agent 却报告成功。定时任务那条路
+// （`MailWidgetApp/DailySourceInstaller.runnerScript`）早就为这个场景加了 shell 层的
+// 兜底发布；手动「重新生成」这条路当时没有同款保险。`terminationHandler` 现在多做
+// 一步 `performFallbackPublishIfNeeded`：agent 进程正常结束后，检查交接目录里的
+// latest.json 是不是本次运行期间新写的、且比 App Group 里已有的日报新，是的话就由
+// 宿主自己完成发布（复用 `DailySummaryPublisher`，与 `--ingest` 走的是同一套步骤）。
 
 import Foundation
 import WidgetKit
@@ -57,7 +66,10 @@ enum DailyRegenerator {
         // 防连点重入：已经有一次在跑（且未过期）就什么都不做。
         guard !isRegenerating() else { return }
 
-        defaults?.set(Date(), forKey: startedAtKey)
+        // 兜底发布要判定"latest.json 是不是本次运行写的"，必须是这次调用开始时刻，
+        // 不是别的时间点（比如 finishEarly 之后才读取的话，早就晚了）。
+        let runStartedAt = Date()
+        defaults?.set(runStartedAt, forKey: startedAtKey)
         reloadWidgets()
 
         let source = DailySourceSettings.selectedSource
@@ -70,6 +82,15 @@ enum DailyRegenerator {
         guard let cliPath = AgentCLILocator.path(for: resolvedCLI),
               FileManager.default.isExecutableFile(atPath: cliPath) else {
             log("未找到 \(resolvedCLI.rawValue) 命令行，请在设置里指定路径（来源 \(source)）")
+            finishEarly()
+            return
+        }
+
+        // 文件存在 ≠ 能用（真机实录：codex 0.137 文件在，一跑 `exec` 就因为模型版本
+        // 不兼容崩溃）。这里比 `AgentCLILocator.isInstalled` 多一步真的探测一次，
+        // 不可用就直接跳过，不浪费一次注定失败的进程启动。
+        if let reason = AgentCLILocator.unusableReason(for: resolvedCLI) {
+            log("\(resolvedCLI.rawValue) 当前不可用，跳过重新生成（来源 \(source)）：\(reason)")
             finishEarly()
             return
         }
@@ -99,15 +120,25 @@ enum DailyRegenerator {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
+        // agent 的 stdout/stderr 不再实时逐块落盘——真机实录：agent 会把自己的 system
+        // prompt（几十 KB 设计规范文本）也吐到输出里，混进日志后真正的状态行被淹没，
+        // 排查时几乎没法看。改成攒进 `TruncatingLogBuffer`（只保留头尾各 4KB），进程结束
+        // 时一次性落盘；我们自己打的状态行（`log(_:)`）完全不走这条路，始终原样完整写入。
+        let outputBuffer = TruncatingLogBuffer()
         pipe.fileHandleForReading.readabilityHandler = { handle in
             let data = handle.availableData
             guard !data.isEmpty else { return }
-            appendProcessOutput(data)
+            outputBuffer.append(data)
         }
 
         process.terminationHandler = { finishedProcess in
             pipe.fileHandleForReading.readabilityHandler = nil
+            let renderedOutput = outputBuffer.render()
+            if !renderedOutput.isEmpty {
+                appendProcessOutput(renderedOutput)
+            }
             log("日报重新生成进程结束（来源 \(source)，退出码 \(finishedProcess.terminationStatus)）")
+            performFallbackPublishIfNeeded(source: source, runStartedAt: runStartedAt)
             finishEarly()
         }
 
@@ -118,6 +149,90 @@ enum DailyRegenerator {
             pipe.fileHandleForReading.readabilityHandler = nil
             log("启动失败（来源 \(source)）：\(error.localizedDescription)")
             finishEarly()
+        }
+    }
+
+    // MARK: - 兜底发布（agent 跑完了但没执行 --ingest）
+
+    /// 兜底发布该不该真的执行——纯判定，不碰文件系统/App Group，方便单测直接喂值。
+    enum FallbackPublishDecision: Equatable {
+        case publish
+        /// `reason` 是给日志看的中文说明，不是错误。
+        case skip(reason: String)
+    }
+
+    /// - Parameters:
+    ///   - stagingModifiedAt: 交接目录 `latest.json` 的文件修改时间；文件不存在传 nil。
+    ///   - runStartedAt: 本次 `regenerate()` 调用开始的时间。
+    ///   - stagingGeneratedAt: 交接目录载荷里 `generatedAt` 字段解析出的时间；解析不出
+    ///     （字段缺失、格式不对）传 nil——这不该挡住发布，真正的格式校验交给
+    ///     `DailySummaryPublisher.publish` 的 `DailySummaryCodec.decode`。
+    ///   - publishedGeneratedAt: App Group 里已经发布的日报的 `generatedAt`；App Group
+    ///     里还没有日报（或读取失败）传 nil。
+    static func fallbackPublishDecision(
+        stagingModifiedAt: Date?,
+        runStartedAt: Date,
+        stagingGeneratedAt: Date?,
+        publishedGeneratedAt: Date?
+    ) -> FallbackPublishDecision {
+        guard let stagingModifiedAt else {
+            return .skip(reason: "交接目录里没有 latest.json，agent 大概率没走到写文件那一步")
+        }
+        guard stagingModifiedAt >= runStartedAt else {
+            return .skip(reason: "latest.json 是本次运行开始之前留下的旧文件，跳过兜底发布")
+        }
+        guard let publishedGeneratedAt else {
+            return .publish
+        }
+        guard let stagingGeneratedAt else {
+            // 载荷确实是这次运行写的，只是 generatedAt 解析不出来——不能据此判断新旧，
+            // 宁可放行让真正的发布步骤去做完整校验，也不要因为一个次要字段漏发。
+            return .publish
+        }
+        guard stagingGeneratedAt > publishedGeneratedAt else {
+            return .skip(reason: "App Group 里已经是不早于这份载荷的日报，agent 大概率已经自己发布过了")
+        }
+        return .publish
+    }
+
+    /// IO 薄层：读交接目录的文件时间 + 解析出的 generatedAt、读 App Group 现有日报的
+    /// generatedAt，喂给 `fallbackPublishDecision` 判定，需要发布就调用
+    /// `DailySummaryPublisher`（与 `--ingest` 走同一套步骤）。
+    ///
+    /// 全程只记日志、不抛错——这本身就是异常路径的兜底，兜底再失败也不该让
+    /// `regenerate()` 崩掉或把"重新生成中"标志卡住（`finishEarly()` 仍会照常执行）。
+    private static func performFallbackPublishIfNeeded(source: String, runStartedAt: Date) {
+        let payloadURL = DailySummaryConstants.dataDirectoryURL
+            .appendingPathComponent(DailySummaryConstants.summaryFilename, isDirectory: false)
+
+        let stagingModifiedAt = (try? FileManager.default.attributesOfItem(atPath: payloadURL.path))?[.modificationDate] as? Date
+
+        var stagingGeneratedAt: Date?
+        if let data = try? Data(contentsOf: payloadURL),
+           let staged = try? JSONDecoder().decode(DailySummary.self, from: data) {
+            stagingGeneratedAt = staged.generatedDate
+        }
+
+        let publishedGeneratedAt = (try? DailySummaryStore().load())?.generatedDate
+
+        let decision = fallbackPublishDecision(
+            stagingModifiedAt: stagingModifiedAt,
+            runStartedAt: runStartedAt,
+            stagingGeneratedAt: stagingGeneratedAt,
+            publishedGeneratedAt: publishedGeneratedAt
+        )
+
+        switch decision {
+        case .skip(let reason):
+            log("兜底发布：跳过（\(reason)）")
+        case .publish:
+            do {
+                let summary = try DailySummaryPublisher.publish(payloadURL: payloadURL, source: source)
+                log("兜底发布：agent 跑完了但没有（成功）执行 --ingest，宿主自己发布了这次日报（\(summary.items.count) 条，来源 \(source)）")
+                reloadWidgets()
+            } catch {
+                log("兜底发布失败（来源 \(source)）：\(error.localizedDescription)")
+            }
         }
     }
 
@@ -226,5 +341,63 @@ enum DailyRegenerator {
         } catch {
             // 日志本身写失败没有更好的兜底位置了；静默丢弃，不影响重新生成主流程。
         }
+    }
+}
+
+/// agent 的 stdout/stderr 只保留头尾各 `headCapacity`/`tailCapacity` 字节——真机实录：
+/// agent 会把自己的 system prompt（几十 KB 设计规范文本）也吐到输出里，全量落盘会把
+/// 真正有用的状态行淹没。`append(_:)` 在数据到达时增量维护 head/tail，不缓存全量输出，
+/// 内存占用恒定（≤ head+tail 容量），不会因为 agent 输出量大而失控增长。
+///
+/// `readabilityHandler` 的回调线程和 `terminationHandler` 的回调线程不保证是同一个，
+/// 内部用一把锁保护 head/tail/totalBytes，`append`/`render` 都可以安全地跨线程调用。
+final class TruncatingLogBuffer {
+    private let headCapacity: Int
+    private let tailCapacity: Int
+    private let lock = NSLock()
+    private var head = Data()
+    private var tail = Data()
+    private var totalBytes = 0
+
+    init(headCapacity: Int = 4096, tailCapacity: Int = 4096) {
+        self.headCapacity = headCapacity
+        self.tailCapacity = tailCapacity
+    }
+
+    func append(_ data: Data) {
+        guard !data.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        totalBytes += data.count
+        if head.count < headCapacity {
+            head.append(data.prefix(headCapacity - head.count))
+        }
+        tail.append(data)
+        if tail.count > tailCapacity {
+            tail.removeFirst(tail.count - tailCapacity)
+        }
+    }
+
+    /// 重建最终要落盘的字节序列：
+    /// - 总量没超过 head+tail 容量时精确复原原始内容（不重复、不丢字节）——head 和 tail
+    ///   在这种量级下的窗口会重叠，直接拼接会把重叠区间打印两遍，所以要从 tail 里裁掉
+    ///   已经在 head 里出现过的那一段。
+    /// - 超过容量才是真正的截断：head + "…[省略 N 字节]…" + tail。
+    func render() -> Data {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard totalBytes > headCapacity + tailCapacity else {
+            guard totalBytes > headCapacity else { return head }
+            // total 落在 (headCapacity, headCapacity + tailCapacity] 之间：tail 已经攒满
+            // tailCapacity 字节，其中前 (headCapacity + tailCapacity - totalBytes) 字节
+            // 与 head 的尾部重叠，丢掉那一段再拼接。
+            let overlap = headCapacity + tailCapacity - totalBytes
+            return head + tail.dropFirst(overlap)
+        }
+
+        let omitted = totalBytes - headCapacity - tailCapacity
+        let marker = "\n…[省略 \(omitted) 字节]…\n".data(using: .utf8) ?? Data()
+        return head + marker + tail
     }
 }
