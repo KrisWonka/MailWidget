@@ -27,12 +27,15 @@ struct DailySummaryWidgetView: View {
 
     let entry: DailySummaryEntry
 
-    /// 固定用 America/New_York 显示报告时间，不跟随机器时区 —— 日报本身就是按
-    /// 纽约时间切窗口的，跟着机器跑会让"今天"的含义漂移。
+    /// 原本固定用 America/New_York 显示，理由是"日报本身按纽约时间切窗口，跟着机器跑会让
+    /// 『今天』的含义漂移"。2026-09-13 起这个前提没有了：提示词里的时区已改成跟随运行机器
+    /// （见 `DailySummaryPromptTemplate.localTimeZoneIdentifier`，第二台机器在太平洋时区，
+    /// 按东部判断「今日必办」早了 3 小时）。生成端既然跟随本机，显示端也必须跟随，否则
+    /// 太平洋用户会看到一个比自己钟表快 3 小时的生成时间。
     private static let generatedAtFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
-        formatter.timeZone = TimeZone(identifier: "America/New_York")
+        formatter.timeZone = .current
         formatter.dateFormat = "M月d日"
         return formatter
     }()

@@ -170,6 +170,7 @@ enum DailySourceInstaller {
         return try installLaunchAgent(
             sourceID: DailySource.codex,
             commandTemplate: "\"\(codex)\" exec --skip-git-repo-check \"$(cat {PROMPT_FILE})\"",
+            executablePath: codex,
             hour: hour,
             minute: minute
         )
@@ -205,6 +206,7 @@ enum DailySourceInstaller {
         return try installLaunchAgent(
             sourceID: DailySource.claude,
             commandTemplate: "\"\(claude)\" -p --permission-mode auto \"$(cat {PROMPT_FILE})\"",
+            executablePath: claude,
             hour: hour,
             minute: minute
         )
@@ -217,6 +219,7 @@ enum DailySourceInstaller {
     static func installLaunchAgent(
         sourceID: String,
         commandTemplate: String,
+        executablePath: String? = nil,
         hour: Int,
         minute: Int
     ) throws -> Outcome {
@@ -239,6 +242,7 @@ enum DailySourceInstaller {
                     of: "{PROMPT_FILE}",
                     with: "\"\(promptURL.path)\""
                 ),
+                executablePath: executablePath,
                 fallbackIngest: (
                     payloadPath: dataDir.appendingPathComponent(
                         DailySummaryConstants.summaryFilename
@@ -275,85 +279,20 @@ enum DailySourceInstaller {
         )
     }
 
-    /// 重试是为了覆盖 Gmail 连接器 tools fetch 的偶发超时——实测 `claude mcp list`
-    /// 连续两次调用就出现过一次超时。无人值守的任务不能因为一次抖动就整天没有日报。
-    /// `fallbackIngest` 是发布环节的兜底：agent 在 headless 模式下**可能拿不到执行
-    /// 命令的权限**，却仍在自己的输出里声称"ingest 退出码 0，已发布"（2026-08-25 实录：
-    /// staging 载荷写到了 13:23，App Group 却停在前一天，游标还自报 published）。
-    /// 脚本自己跑一遍 ingest 不经过任何权限系统，是确定性的；只在 staging 载荷确实是
-    /// 本次运行刚写的（20 分钟内）时才执行，避免把陈旧载荷盖到更新的发布上。
-    ///
-    /// 每次尝试都包了一层 20 分钟（1200s）看门狗，直接对应 2026-08-25 那次实录
-    /// （09:23 启动、12:17 才结束，近 3 小时）——`--permission-mode auto`（见
-    /// `installClaudeJob`）已经从源头堵死"等一个不存在的人点允许"这条卡死路径，这层
-    /// 超时是第二道保险：万一还有别的原因卡住（网络挂起、MCP 连接器无响应等），也不能
-    /// 让单次尝试吃掉一整个白天。
-    ///
-    /// 选择"后台 PID + kill"而不是 `perl -e 'alarm shift; exec @ARGV'`：macOS 没有
-    /// `/usr/bin/timeout`（已用 `ls` 实测确认不存在），perl 版能杀掉被 exec 替换的那
-    /// 一个进程，但 `claude -p` 会在权限询问、Bash 工具调用等场景 fork 出子进程——
-    /// `alarm`+`exec` 的 SIGALRM 只送到 exec 出来的那一个进程，杀不到它自己再 fork
-    /// 出来的子孙，会留下孤儿进程继续跑。这里改用 `set -m` 开启 job control 让每个
-    /// 后台任务拿到独立进程组，超时后 `kill -TERM -- -$pid`（负号 pid = 整个进程组）
-    /// 连子孙一起收，5 秒宽限期后 `kill -KILL` 兜底。已用两个最小复现脚本验证过：
-    /// (1) `sleep 10` 在 3 秒超时下确实提前终止、返回非零状态，脚本据此判定失败并进入
-    /// 重试；(2) 故意 fork 一个孙进程验证它也被杀死，不是只砍了直接子进程。
-    static func runnerScript(command: String, fallbackIngest: (payloadPath: String, command: String)? = nil) -> String {
-        let ingestBlock = fallbackIngest.map { ingest in
-            """
-
-              if [ -f "\(ingest.payloadPath)" ]; then
-                payload_age=$(( $(/bin/date +%s) - $(/usr/bin/stat -f %m "\(ingest.payloadPath)") ))
-                if [ "$payload_age" -lt 1200 ]; then
-                  echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] 兜底发布（载荷 ${payload_age}s 前写入）"
-                  \(ingest.command) || echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] 兜底发布失败"
-                else
-                  echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] 跳过兜底发布：载荷是 ${payload_age}s 前的旧件"
-                fi
-              fi
-            """
-        } ?? ""
-
-        return """
-        #!/bin/bash
-        # 由 MailWidget 生成。手工改动会在下次"一键添加"时被覆盖（改动前会自动备份）。
-        set -uo pipefail
-        # 开 job control：让下面每个 `( ... ) &` 后台任务拿到独立进程组，超时时才能用
-        # `kill -TERM -- -$pid` 把它和它 fork 出来的子孙一并收掉，而不是只砍直接子进程。
-        set -m
-
-        for attempt in 1 2 3; do
-          echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] attempt ${attempt}/3"
-
-          ( \(command) ) &
-          cmd_pid=$!
-          (
-            /bin/sleep 1200
-            if /bin/kill -0 "$cmd_pid" 2>/dev/null; then
-              echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] attempt ${attempt}/3 已跑满 20 分钟，判定挂死，终止进程组 -$cmd_pid" >&2
-              /bin/kill -TERM -- -"$cmd_pid" 2>/dev/null
-              /bin/sleep 5
-              /bin/kill -KILL -- -"$cmd_pid" 2>/dev/null
-            fi
-          ) &
-          watchdog_pid=$!
-
-          status=0
-          wait "$cmd_pid" || status=$?
-          /bin/kill "$watchdog_pid" 2>/dev/null
-          wait "$watchdog_pid" 2>/dev/null
-
-          if [ "$status" -eq 0 ]; then
-            echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] ok"\(ingestBlock)
-            exit 0
-          fi
-          echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] failed (exit ${status}), retrying in 60s"
-          /bin/sleep 60
-        done
-
-        echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] giving up after 3 attempts"
-        exit 1
-        """
+    /// 生成实现挪进了 DataKit 的 `LaunchAgentRunnerScript`——这段脚本在真机上连续藏过
+    /// 三个 bug（PATH 缺失导致 `env: node` 找不到、工作目录为 `/` 让 codex 降级成只读沙箱、
+    /// 兜底发布被锁在退出码 0 的分支里），而它在 app target 里根本没法单测。搬进 DataKit
+    /// 后可以直接用 `bash -n` 校验语法并断言关键行。这里保留同名转发，调用点不变。
+    static func runnerScript(
+        command: String,
+        executablePath: String? = nil,
+        fallbackIngest: (payloadPath: String, command: String)? = nil
+    ) -> String {
+        LaunchAgentRunnerScript.make(
+            command: command,
+            executablePath: executablePath,
+            fallbackIngest: fallbackIngest
+        )
     }
 
     static func launchAgentPlist(
@@ -486,7 +425,7 @@ enum DailySourceInstaller {
         "mailbox": { "const": "\(DailySummaryConstants.expectedMailbox)" },
         "generatedAt": {
           "type": "string",
-          "description": "RFC 3339，带 America/New_York 的 UTC 偏移"
+          "description": "RFC 3339，带 \(DailySummaryPromptTemplate.localTimeZoneIdentifier) 的 UTC 偏移"
         },
         "headline": { "type": "string" },
         "items": {

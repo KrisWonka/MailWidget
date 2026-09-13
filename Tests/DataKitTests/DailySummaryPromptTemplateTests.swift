@@ -93,4 +93,26 @@ final class DailySummaryPromptTemplateTests: XCTestCase {
             XCTAssertFalse(DailySource.isValidID(bad), "\(bad) 应该非法")
         }
     }
+
+    // MARK: - 时区跟随本机
+
+    /// 2026-09-13 第二台机器实录：提示词把时区写死成 `America/New_York`，而那台机器在
+    /// `America/Los_Angeles`，日报一直按早 3 小时的时间判断「今日必办」。
+    func testPromptUsesLocalTimeZoneNotHardcodedEastern() {
+        let rendered = DailySummaryPromptTemplate.body
+        let local = TimeZone.current.identifier
+        XCTAssertTrue(rendered.contains(local), "提示词里没有本机时区 \(local)")
+        if local != "America/New_York" {
+            XCTAssertFalse(
+                rendered.contains("America/New_York"),
+                "提示词仍然写死了原作者的时区"
+            )
+        }
+    }
+
+    /// `body` 是 `static var` 而不是 `static let`（`static let` 会把插值冻结在首次访问），
+    /// 时区同理必须每次读取时重新求值。
+    func testTimeZoneIdentifierMatchesCurrent() {
+        XCTAssertEqual(DailySummaryPromptTemplate.localTimeZoneIdentifier, TimeZone.current.identifier)
+    }
 }

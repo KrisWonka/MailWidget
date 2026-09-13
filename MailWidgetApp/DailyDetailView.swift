@@ -41,10 +41,12 @@ final class DailyDetailModel: ObservableObject {
 struct DailyDetailView: View {
     @ObservedObject var model: DailyDetailModel
 
+    /// 时区跟随运行机器，与 widget 那份（`DailySummaryWidgetView.generatedAtFormatter`）
+    /// 和提示词（`DailySummaryPromptTemplate.localTimeZoneIdentifier`）保持一致。
     private static let generatedAtFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
-        formatter.timeZone = TimeZone(identifier: "America/New_York")
+        formatter.timeZone = .current
         formatter.dateFormat = "M月d日"
         return formatter
     }()

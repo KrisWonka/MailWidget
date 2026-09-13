@@ -84,6 +84,17 @@ enum DailySummaryPromptTemplate {
 
     /// 正文里"直接写邮箱地址"的地方用这个：配置了就用配置值，没配置就插哨兵——
     /// 绝不悄悄渲染出空字符串。
+    /// 2026-09-13 第二台机器实录：提示词里把时区写死成 `America/New_York`（原作者所在
+    /// 时区），而那台机器在 `America/Los_Angeles`。日报于是一直按东部时间判断「今日必办」
+    /// 和「24 小时内的硬截止」，比本地早 3 小时——临近午夜时会把明天的事说成今天、把今天
+    /// 已过期的事仍当作待办。`generatedAt` 也带着 -04:00 的偏移写进载荷。
+    ///
+    /// 这是去个人化时漏掉的一处：仓库里其它写死的个人信息都已参数化，唯独提示词正文里
+    /// 这两处时区是纯文本，grep 个人邮箱/Team ID 时扫不到。改为读运行机器自己的时区。
+    static var localTimeZoneIdentifier: String {
+        TimeZone.current.identifier
+    }
+
     private static func mailboxOrSentinel() -> String {
         DailySummaryConstants.configuredMailbox ?? Placeholder.mailboxNotConfigured.rawValue
     }
@@ -143,8 +154,8 @@ enum DailySummaryPromptTemplate {
     - `info` — information requiring no action
 
     A message with no direct ask is not a task. An optional event is not a deadline. Use \
-    America/New_York local time with a 24-hour clock. An event that already ended must not remain \
-    an action recommendation.
+    \(localTimeZoneIdentifier) local time with a 24-hour clock. An event that already ended must \
+    not remain an action recommendation.
 
     ## Publishing (all three steps are required)
 
@@ -159,7 +170,7 @@ enum DailySummaryPromptTemplate {
 
     - `schemaVersion` — the number `1`
     - `mailbox` — `\(mailboxOrSentinel())`
-    - `generatedAt` — report time as RFC 3339 with its America/New_York UTC offset
+    - `generatedAt` — report time as RFC 3339 with its \(localTimeZoneIdentifier) UTC offset
     - `headline` — the concise Chinese lead sentence
     - `items` — at most \(DailySummaryConstants.maximumItemCount) objects, ranked \
     `immediate > today > week > optional > info`

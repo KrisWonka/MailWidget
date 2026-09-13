@@ -108,8 +108,9 @@ enum DailyRegenerator {
         process.arguments = arguments(for: source, prompt: prompt)
         // GUI app（LSUIElement）继承到的 PATH 很窄，通常只有 /usr/bin:/bin:/usr/sbin:/sbin。
         // codex 是 `#!/usr/bin/env node` 脚本，env 要能找到 node 才能起来；显式把
-        // Homebrew 的 bin 目录补进 PATH，不依赖调用环境本身有没有带上。
-        process.environment = expandedEnvironment()
+        // 常见安装目录补进 PATH，不依赖调用环境本身有没有带上。传 cliPath 是为了连
+        // nvm/volta 那种版本化目录里的 node 也能解析出来。
+        process.environment = expandedEnvironment(executablePath: cliPath)
         // 工作目录不能是继承来的、不可预期的值（宿主 app 的 cwd 不是 git 仓库）——
         // 明确钉在 home 目录，行为可预期，也是 codex 的"不在受信目录"判定所依赖的路径。
         process.currentDirectoryURL = URL(fileURLWithPath: NSHomeDirectory())
@@ -266,16 +267,14 @@ enum DailyRegenerator {
         }
     }
 
-    private static func expandedEnvironment() -> [String: String] {
-        var environment = ProcessInfo.processInfo.environment
-        let extraPaths = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
-        let existingPaths = environment["PATH"]?.split(separator: ":").map(String.init) ?? []
-        var merged: [String] = []
-        for path in extraPaths + existingPaths where !merged.contains(path) {
-            merged.append(path)
-        }
-        environment["PATH"] = merged.joined(separator: ":")
-        return environment
+    /// PATH 的构造挪进 `AgentRuntimePath`，与 `DailySourceInstaller` 生成的 launchd
+    /// runner 脚本共用同一份定义——两条路径跑的是同一个 CLI，环境不该有两套说法。
+    /// 额外传入可执行文件本身，是为了把 `#!/usr/bin/env node` 这类壳的解释器目录也带上
+    /// （见 `AgentRuntimePath.directoriesNeeded(toRun:)` 的真机实录）。
+    private static func expandedEnvironment(executablePath: String? = nil) -> [String: String] {
+        AgentRuntimePath.expandedEnvironment(
+            extraDirectories: executablePath.map(AgentRuntimePath.directoriesNeeded(toRun:)) ?? []
+        )
     }
 
     // MARK: - 收尾
