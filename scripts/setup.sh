@@ -109,6 +109,27 @@ elif [[ -n "${codex_path}" ]];  then engine="codex"
 fi
 [[ -n "${engine}" ]] && ok "引擎：${engine}"
 
+# Gmail 日报靠的是 AI 命令行自己的 Gmail 连接器读邮件——这个 app 从不碰 Gmail 账号，
+# 也没有登录框。连接器没接上的话，日报每天都会静默失败，所以这里直接探测一次。
+if [[ -n "${engine}" ]]; then
+  gmail_ok=""
+  case "${engine}" in
+    claude) "${claude_path}" mcp list 2>/dev/null | grep -qiE 'gmail.*connected' && gmail_ok=1 ;;
+    codex)  "${codex_path}"  mcp list 2>/dev/null | grep -qi  'gmail'            && gmail_ok=1 ;;
+  esac
+  if [[ -n "${gmail_ok}" ]]; then
+    ok "${engine} 已连接 Gmail —— 日报功能可用"
+  else
+    warn "${engine} 还没连接 Gmail —— 收件箱小组件和邮件总结不受影响，但「Gmail 日报」会失败"
+    if [[ "${engine}" == "claude" ]]; then
+      echo "    去 claude.ai → Settings → Connectors → Gmail → 连接（用你要总结的那个 Gmail 账号授权）"
+    else
+      echo "    在 Codex 里连接 Gmail（见 Codex 的 connectors/MCP 设置）"
+    fi
+    echo "    ${DIM}接好之后不用重跑本脚本，日报下次运行就会生效${RESET}"
+  fi
+fi
+
 # ── 6. 邮箱地址 ─────────────────────────────────────────────────────────────
 step "配置邮箱"
 echo "  ${DIM}日报会总结这个 Gmail 地址的邮件（留空则等第一份日报到达时自动认领）${RESET}"

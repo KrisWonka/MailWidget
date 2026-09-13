@@ -61,6 +61,29 @@ Claude 或 Codex 每天早上替你把邮件读一遍、写成中文简报。
 
 ---
 
+## 关于「登录」：这个 app 没有登录框，也不碰你的邮箱密码
+
+安装时会问你一个 Gmail 地址，**那不是登录**——它只是告诉程序「日报要总结哪个邮箱」，
+顺便用来校验收到的日报确实属于这个邮箱、以及拼 Gmail 网页链接。真正的读取权限来自
+两个它管不着的地方：
+
+| 功能 | 读什么 | 凭证在谁那里 |
+|---|---|---|
+| 收件箱小组件 | 你本机 Mail.app 的数据库 | Mail.app 里你早就登录好的账户（给「完全磁盘访问」就能读） |
+| 邮件总结 | 本机 Mail.app 取正文，交给 AI 写摘要 | 同上 + 你的 claude / codex 命令行自己的账号 |
+| **Gmail 日报** | **Gmail 服务器**（不走本机 Mail） | **你 Claude（或 Codex）账号里的 Gmail 连接器** |
+
+所以**想用 Gmail 日报，还得多做一步**：在 Claude 里把 Gmail 连上。
+
+**Claude**：打开 [claude.ai](https://claude.ai) → Settings → Connectors → Gmail → 连接，
+用你要总结的那个 Gmail 账号授权。连完在终端里跑 `claude mcp list`，看到
+`claude.ai Gmail: ... ✔ Connected` 就成了。
+
+**Codex**：在 Codex 的 connectors / MCP 设置里连 Gmail，`codex mcp list` 能看到即可。
+
+`setup.sh` 会自动帮你检测这一步，没连上会明确提示（收件箱小组件和邮件总结不受影响，
+只有日报会失败）。连好之后不用重跑脚本，日报下次运行自动生效。
+
 ## 装完之后（三件手动的事）
 
 1. **给完全磁盘访问**：脚本会自动打开「系统设置 → 隐私与安全性 → 完全磁盘访问」，
