@@ -37,8 +37,16 @@ Claude 或 Codex 每天早上替你把邮件读一遍、写成中文简报。
 
 ⚠️ **如果你机器上已经有 Xcode 但打不开**（双击没反应，或终端里 `open -a Xcode` 报
 `-10664`）：那是 macOS 主动禁用了过旧的 Xcode——新系统会硬性要求配套版本的 Xcode
-（例如 macOS 27 要 Xcode 27+）。去 App Store 的「更新」里升级 Xcode 即可，免费。
-注意此时命令行 `xcodebuild` 往往还能正常工作，所以别被"构建没问题"误导。
+（例如 macOS 27 要 Xcode 27+）。
+
+先去 App Store 的「更新」看有没有新版 Xcode——有就直接升，免费。**如果商店里没有更新、
+只显示「打开」**，说明配套的 Xcode 还没正式发布（只到 beta/RC，而这两种不上架 App Store）。
+这时要么去 <https://developer.apple.com/download/applications/> 用免费 Apple ID 登录后下载
+对应版本，要么等它上架。
+
+注意这种情况下命令行 `xcodebuild` 往往还能正常工作（它不走这套兼容性检查），所以别被
+"构建没问题"误导成 Xcode 没问题——本项目的构建脚本用的就是命令行，图形界面打不开
+并不影响安装。
 
 ### 2. 一张免费的 Apple 开发者证书
 
