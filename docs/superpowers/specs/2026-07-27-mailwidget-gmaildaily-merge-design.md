@@ -272,9 +272,9 @@ App 渲染模板时把三个占位符替换为真实值：
 
 | 占位符 | 渲染示例 |
 |---|---|
-| `<DATA_DIR>` | `/Users/kris/Library/Application Support/GmailDailyWidget` |
+| `<DATA_DIR>` | `~/Library/Application Support/GmailDailyWidget` |
 | `<INGEST_CMD>` | `/Applications/MailWidget.app/Contents/MacOS/MailWidget --ingest "<DATA_DIR>/latest.json" --source gemini` |
-| `<CURSOR_FILE>` | `/Users/kris/Library/Application Support/GmailDailyWidget/cursor-gemini.md` |
+| `<CURSOR_FILE>` | `~/Library/Application Support/GmailDailyWidget/cursor-gemini.md` |
 
 `--source` 的值在渲染时就已写死在 `<INGEST_CMD>` 内，agent 不需要理解这个参数。
 
@@ -325,7 +325,7 @@ plist 要点：
 
 - `StartCalendarInterval`：Hour 9、Minute 7。避开整点，且与 Codex 的 09:00 错开，两者不会同时写入。
 - `ProgramArguments`：`/bin/bash`, `<scripts/claude_daily_summary.sh 的绝对路径>`
-- launchd 的 PATH 极窄，脚本内一律使用绝对路径（`/Users/kris/.local/bin/claude`）
+- launchd 的 PATH 极窄，脚本内一律使用绝对路径（`~/.local/bin/claude`）
 - `StandardOutPath` / `StandardErrorPath` 指向 `~/Library/Logs/gmail-daily-claude.log`
 - 写入后执行 `launchctl bootstrap gui/$UID <plist>` 并校验 `launchctl print` 能查到该 label
 
@@ -365,8 +365,8 @@ gmail-daily-template/
 /Applications/GmailDailyWidget.app/Contents/MacOS/GmailDailyWidget --ingest "…"
   →  /Applications/MailWidget.app/Contents/MacOS/MailWidget --ingest "…" --source codex
 
-osascript /Users/kris/Documents/General/GmailDailyWidget/scripts/update_note.applescript
-  →  osascript /Users/kris/Documents/mail_widget/scripts/update_note.applescript
+osascript ~/Documents/General/GmailDailyWidget/scripts/update_note.applescript
+  →  osascript ~/Documents/mail_widget/scripts/update_note.applescript
 ```
 
 改动前先备份该文件。改动后手工触发一次验证，不等次日 09:00。

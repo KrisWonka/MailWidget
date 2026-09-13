@@ -121,7 +121,7 @@ JSON 编解码统一用 `JSONEncoder/Decoder` 的 `.iso8601` 日期策略（fixt
 
 **契约 12 — 邮件总结（2026-07-31 新增，Claude 驱动）**：
 - 入口：Mail widget 头部（markAllRead 左侧）`text.magnifyingglass` Link → `mailwidget://mailSummary?scope=<scopeID>`（仅 all/account scope）。宿主路由打开总结窗口（单例+每次显示强制 reload，DailyDetail 模式）。
-- 数据链：`MailContentFetcher`（AppleScript 批量抓每账户 inbox 前 20 封的 message id/发件人/主题/日期/已读/正文前 2000 字符）→ `MailSummarizer` 组装 prompt → `/Users/kris/.local/bin/claude -p`（stdin 置空、cwd=HOME、PATH 注入、日志 `~/Library/Logs/mailwidget-mail-summary.log`）→ stdout 严格 JSON → 宿主校验（schema + header ⊆ 输入集）→ `MailSummaryStore` 落 App Group（`mail-summary-<scope哈希>.json`，iso8601 原子写）。
+- 数据链：`MailContentFetcher`（AppleScript 批量抓每账户 inbox 前 20 封的 message id/发件人/主题/日期/已读/正文前 2000 字符）→ `MailSummarizer` 组装 prompt → `~/.local/bin/claude -p`（stdin 置空、cwd=HOME、PATH 注入、日志 `~/Library/Logs/mailwidget-mail-summary.log`）→ stdout 严格 JSON → 宿主校验（schema + header ⊆ 输入集）→ `MailSummaryStore` 落 App Group（`mail-summary-<scope哈希>.json`，iso8601 原子写）。
 - Schema v1：`{schemaVersion:1, scopeID, scopeName, generatedAt, items:[{messageIdHeader, sender, subject, summaryTitle, summaryDetail}]}`，全中文摘要，unread 优先入选，≤20 封。
 - 防重入：App Group 键 `mailSummaryStartedAt.<scopeID>`（15 分钟过期，DailyRegenerator 同款）。
 - CLI：`MailWidget --summarize <scopeID>` 同步跑同一条链（IngestCommand 模式），widget 按钮与自动化共用实现。

@@ -269,7 +269,7 @@ enum MailSummarizer {
 
     // MARK: - 引擎子进程
 
-    /// 引擎 → 可执行文件路径。曾经是写死的本机路径（`/Users/kris/.local/bin/claude`、
+    /// 引擎 → 可执行文件路径。曾经是写死的本机路径（`~/.local/bin/claude`、
     /// `/opt/homebrew/bin/codex`），别人克隆仓库后这两个 CLI 十有八九不在这些路径上；
     /// 现在通过 `AgentCLILocator` 探测（用户设置里的覆盖路径 → 缓存 → 常见安装位置 →
     /// 登录 shell `which`）。找不到时返回 nil——调用方（`runEngine`）据此抛出

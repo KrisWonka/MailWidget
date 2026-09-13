@@ -2,7 +2,7 @@
 // DataKit — 定位 claude / codex 命令行可执行文件的路径。
 //
 // 去个人化背景：`MailSummarizer` 和 `DailyRegenerator` 曾经把 claude/codex 的可执行
-// 文件路径写死为原作者本机的具体位置（`/Users/kris/.local/bin/claude`、
+// 文件路径写死为原作者本机的具体位置（`~/.local/bin/claude`、
 // `/opt/homebrew/bin/codex`）。别人克隆仓库后，这两个 CLI 十有八九不在同样的路径上，
 // 于是日报生成/邮件总结全部静默失败。这里统一探测逻辑，两处调用方都改成问它。
 //

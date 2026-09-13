@@ -125,7 +125,7 @@ final class ModelsCodableTests: XCTestCase {
         {
           "id": "7B01A2C4-1111-4222-8333-DEMO00000002",
           "name": "Gmail",
-          "email": "wl2464649623@gmail.com",
+          "email": "you@example.com",
           "mailboxes": [
             {
               "id": "imap://7B01A2C4-1111-4222-8333-DEMO00000002/INBOX",
@@ -218,7 +218,7 @@ final class ModelsCodableTests: XCTestCase {
 
         let gmail = try XCTUnwrap(snapshot.accounts.first { $0.id == "7B01A2C4-1111-4222-8333-DEMO00000002" })
         XCTAssertEqual(gmail.name, "Gmail")
-        XCTAssertEqual(gmail.email, "wl2464649623@gmail.com")
+        XCTAssertEqual(gmail.email, "you@example.com")
         XCTAssertEqual(gmail.mailboxes.count, 1)
 
         let inbox = try XCTUnwrap(gmail.mailboxes.first { $0.role == "inbox" })

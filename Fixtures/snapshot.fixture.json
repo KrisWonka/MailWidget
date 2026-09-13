@@ -83,7 +83,7 @@
     {
       "id": "7B01A2C4-1111-4222-8333-DEMO00000002",
       "name": "Gmail",
-      "email": "wl2464649623@gmail.com",
+      "email": "you@example.com",
       "mailboxes": [
         {
           "id": "imap://7B01A2C4-1111-4222-8333-DEMO00000002/INBOX",
