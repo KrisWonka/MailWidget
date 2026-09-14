@@ -109,6 +109,7 @@
 		D1ED515DC3CBC53D5A3BDA34 /* MailContentFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A8B81728D6BD16EBBD83A62 /* MailContentFetcher.swift */; };
 		D1F85B472FDFFD46345F298C /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 931A2C95A4007BF692217209 /* OnboardingView.swift */; };
 		D4183EE8B62F5361AA2A1FCE /* MailContentFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A8B81728D6BD16EBBD83A62 /* MailContentFetcher.swift */; };
+		DBDD6CDB6CC174C785427E2C /* DailyRegeneratorWatchdogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 296E1A65CA159AA8B9849D26 /* DailyRegeneratorWatchdogTests.swift */; };
 		DEF6741388E882828257285F /* AppleScriptProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = F91C54A3B769570456E57841 /* AppleScriptProvider.swift */; };
 		E2CD94121AE275B020B32A80 /* DailyRegenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31FED381B8953927585942BE /* DailyRegenerator.swift */; };
 		EC5677CB4841CD5C410C3C4E /* LaunchAgentRunnerScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 372A282D66F8A85154C3CB32 /* LaunchAgentRunnerScript.swift */; };
@@ -167,6 +168,7 @@
 		17860228F53A1C58B3FE6CA0 /* MailWidgetApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MailWidgetApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		252D11B456CF23867027A024 /* MailSummaryAutomationInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailSummaryAutomationInstaller.swift; sourceTree = "<group>"; };
 		26224CDAC36AB3929721DB87 /* MailAppOpener.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailAppOpener.swift; sourceTree = "<group>"; };
+		296E1A65CA159AA8B9849D26 /* DailyRegeneratorWatchdogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyRegeneratorWatchdogTests.swift; sourceTree = "<group>"; };
 		29A611D4815C63FAAAF9CB73 /* AgentRuntimePathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRuntimePathTests.swift; sourceTree = "<group>"; };
 		307695529A134F9BE0E5D3C2 /* MailSummarizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailSummarizer.swift; sourceTree = "<group>"; };
 		31FED381B8953927585942BE /* DailyRegenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyRegenerator.swift; sourceTree = "<group>"; };
@@ -239,6 +241,7 @@
 				8A909B2997269CF45D4515CB /* AppleScriptProviderErrorTests.swift */,
 				020CFC557B5EF71CBA9508EC /* DailyBriefTests.swift */,
 				BD171D9464EBB5519DB55F7A /* DailyRegeneratorFallbackPublishTests.swift */,
+				296E1A65CA159AA8B9849D26 /* DailyRegeneratorWatchdogTests.swift */,
 				D92EF6C280EC959A9B6AE0A6 /* DailySummaryPromptTemplateTests.swift */,
 				B322827F305FD30D02693902 /* DailySummaryTests.swift */,
 				F10E013CB3A3C52B11C6D2A0 /* EnvelopeIndexProviderRealDataTests.swift */,
@@ -594,6 +597,7 @@
 				160C7C728CC7CB404ED1A920 /* DailyLinkAvailabilityStore.swift in Sources */,
 				E2CD94121AE275B020B32A80 /* DailyRegenerator.swift in Sources */,
 				97A713C78F5A1CDBEF0F11A2 /* DailyRegeneratorFallbackPublishTests.swift in Sources */,
+				DBDD6CDB6CC174C785427E2C /* DailyRegeneratorWatchdogTests.swift in Sources */,
 				0978A00A5930F823A2F5E551 /* DailySourceSettings.swift in Sources */,
 				94C09D26A789A52F20A2915D /* DailySummary.swift in Sources */,
 				10E320129943C1BCBC142794 /* DailySummaryMigration.swift in Sources */,

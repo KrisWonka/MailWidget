@@ -25,9 +25,21 @@ enum DailyRegenerator {
     /// App Group UserDefaults 里记录"重新生成已启动"的时间戳。
     static let startedAtKey = "dailyRegenerateStartedAt"
 
-    /// 超过这个时长视为过期。agent 一次真实运行远低于 15 分钟；这是防止进程被杀死、
-    /// 系统睡眠等异常打断 terminationHandler 后，widget 永久卡在"重新生成中"的兜底。
+    /// 超过这个时长视为过期。agent 一次真实运行远低于 15 分钟（本机实测 4–5 分钟）；
+    /// 这是防止进程被杀死、系统睡眠等异常打断 terminationHandler 后，widget 永久卡在
+    /// "重新生成中"的兜底。
     static let staleAfter: TimeInterval = 15 * 60
+
+    /// 进程看门狗的超时，**必须严格小于 `staleAfter`**——这条不等式维持一个关键不变式：
+    ///
+    ///     flag 已过期（`isRegenerating() == false`）⇒ 上一次的子进程一定已经被杀死
+    ///
+    /// 没有这个不变式时，防重入判据（`guard !isRegenerating()`）是纯时间判断、跟进程
+    /// 死活无关：一次跑满 15 分钟的运行会让 flag 先过期，用户再点一次就**并发起第二个
+    /// agent**，两个 agent 同时往同一个 `latest.json` 写，还各自推进游标。launchd 那条
+    /// 路径早就有 20 分钟看门狗（`LaunchAgentRunnerScript`，连整个进程组一起 kill），
+    /// 手动这条一直什么都没有——又一处两条路径不同构。
+    static let watchdogTimeout: TimeInterval = staleAfter - 60
 
     /// widget 头部翻页键左侧要 reload 的两个 kind：日报 widget 与 Mail widget。
     /// 两个都 reload 不会造成额外副作用——只是让另一个本来没变化的 widget 多刷新一次。
@@ -146,10 +158,73 @@ enum DailyRegenerator {
         do {
             try process.run()
             log("已启动日报重新生成（来源 \(source)）")
+            scheduleWatchdog(for: process, source: source)
         } catch {
             pipe.fileHandleForReading.readabilityHandler = nil
             log("启动失败（来源 \(source)）：\(error.localizedDescription)")
             finishEarly()
+        }
+    }
+
+    // MARK: - 看门狗
+
+    /// `watchdogTimeout` 到点后子进程还活着就杀掉它。杀掉会让 `terminationHandler` 正常
+    /// 触发，于是兜底发布和 `finishEarly()`（清 flag）都照常走——所以这里只负责"杀"，
+    /// 不重复清理。
+    ///
+    /// 为什么要连进程组一起杀：`claude` / `codex` 都会 fork 出子进程（MCP 服务器、Bash
+    /// 工具调用等），只 `terminate()` 直接子进程会留下继续跑的孙子进程。launchd 那条
+    /// 路径在 shell 里用 `kill -TERM -- -$pid` 解决同一问题（见 `LaunchAgentRunnerScript`
+    /// 的注释与两个最小复现验证）；这里对应地先给进程组发信号，再退回只杀直接子进程。
+    ///
+    /// `Process` 默认不会给子进程单独开进程组，所以子进程的 pgid 通常等于宿主 app 的
+    /// pgid——**绝不能**无条件 `kill(-pgid)`，那会把宿主 app 自己一起杀掉。这里只在
+    /// 子进程确实自成一组（`pgid == pid`）时才走进程组，否则老老实实只杀它本身。
+    private static func scheduleWatchdog(for process: Process, source: String) {
+        let deadline = DispatchTime.now() + watchdogTimeout
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: deadline) {
+            guard process.isRunning else { return }
+            let pid = process.processIdentifier
+            log("日报重新生成已跑满 \(Int(watchdogTimeout / 60)) 分钟，判定挂死，终止进程 \(pid)（来源 \(source)）")
+            terminateProcessTree(pid: pid, process: process)
+        }
+    }
+
+    /// 抽出来是为了让"要不要按进程组杀"这个判断可以单测——它依赖的只有 pid 和 pgid
+    /// 两个数，不需要真的起进程。
+    enum TerminationTarget: Equatable {
+        /// 子进程自成一组，可以安全地杀整个进程组（负号 pid）。
+        case processGroup(pid_t)
+        /// 子进程和调用方同组——杀进程组会连宿主 app 一起杀掉，只能杀它自己。
+        case singleProcess(pid_t)
+    }
+
+    static func terminationTarget(childPID: pid_t, childPGID: pid_t, ownPGID: pid_t) -> TerminationTarget {
+        guard childPGID == childPID, childPGID != ownPGID else {
+            return .singleProcess(childPID)
+        }
+        return .processGroup(childPID)
+    }
+
+    private static func terminateProcessTree(pid: pid_t, process: Process) {
+        let childPGID = getpgid(pid)
+        let target = terminationTarget(childPID: pid, childPGID: childPGID, ownPGID: getpgrp())
+        switch target {
+        case .processGroup(let groupPID):
+            kill(-groupPID, SIGTERM)
+        case .singleProcess:
+            process.terminate()
+        }
+
+        // 宽限 5 秒后补 SIGKILL，与 launchd runner 脚本同一节奏。
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 5) {
+            guard process.isRunning else { return }
+            switch target {
+            case .processGroup(let groupPID):
+                kill(-groupPID, SIGKILL)
+            case .singleProcess(let childPID):
+                kill(childPID, SIGKILL)
+            }
         }
     }
 
@@ -254,6 +329,12 @@ enum DailyRegenerator {
         }
     }
 
+    /// 给单测用的入口——`arguments(for:prompt:)` 是私有的，而这个函数产出的正是
+    /// "少一个参数就在别人机器上卡死"的那串命令行，必须能被直接断言。
+    static func argumentsForTesting(source: String, prompt: String) -> [String] {
+        arguments(for: source, prompt: prompt)
+    }
+
     private static func arguments(for source: String, prompt: String) -> [String] {
         switch source {
         case DailySource.codex:
@@ -262,8 +343,23 @@ enum DailyRegenerator {
             // 受信目录检查会直接拒绝执行（真机首跑实测命中）；这是官方给非仓库场景的出口。
             return ["exec", "--skip-git-repo-check", prompt]
         default:
-            // Claude：`claude -p <prompt>`。
-            return ["-p", prompt]
+            // Claude：`claude -p --permission-mode auto <prompt>`。
+            //
+            // `--permission-mode auto` 与 `DailySourceInstaller.installClaudeJob` 完全对齐
+            // （那边的长注释写了取值考据：'default' 会等一个不存在的人点「允许」，
+            // 'dontAsk' 会静默拒绝掉没预先批准的 MCP 工具，'auto' 是唯一既不缩小工具集
+            // 又不会阻塞的选项）。
+            //
+            // 这个参数 2026-08-25 就因为 launchd 任务卡死近 3 小时而加过一次，但**只加在了
+            // launchd 那条路径**；手动「立即刷新」这条从功能引入起一直是 `["-p", prompt]`，
+            // 中间两次"修真机故障"的提交都没把它补上。2026-09-14 排查时才发现这个不对称。
+            //
+            // ⚠️ 记录一个容易误判的事实：在原作者本机上，缺这个参数**并不会**复现卡死——
+            // 实测一次完整运行 22 次工具调用 0 次被拒（`~/.claude/settings.json` 里的
+            // 放行规则恰好盖住了它用到的 Bash 和 Gmail MCP 工具），4 分 46 秒正常退出。
+            // 所以这条不是"当前症状的根因"，而是**换一台没有同款放行配置的机器就会中招**的
+            // 潜在缺陷——两条路径本该同构，不该靠用户的个人设置兜着。
+            return ["-p", "--permission-mode", "auto", prompt]
         }
     }
 

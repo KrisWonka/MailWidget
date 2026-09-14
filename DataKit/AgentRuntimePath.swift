@@ -115,6 +115,15 @@ enum AgentRuntimePath {
         return nil
     }
 
+    /// 登录 shell 探测的超时。用户的 zsh 启动脚本里可能有网络探测、版本管理器初始化
+    /// （nvm/rbenv 这类）之类的慢动作，卡住时不能无限等。
+    ///
+    /// 2026-09-14 由 codex 的独立复查指出：同一个仓库里性质完全相同的
+    /// `AgentCLILocator.probeVersion` 特意加了 15 秒看门狗 + `terminate()`，而这里
+    /// （2026-09-13 新写的）什么都没有——又一处不对称。这个调用发生在 spawn 真正的 agent
+    /// 进程**之前**，调用方若在主线程上，卡住就是整个 app 转圈。
+    static let loginShellProbeTimeout: TimeInterval = 10
+
     /// 用登录 shell 解析一个命令名的绝对路径。与 `AgentCLILocator.whichPath` 同形，但那边
     /// 只认 `AgentCLI` 枚举里的两个 CLI，这里要解析的是任意解释器名（node/python3/ruby…）。
     static func resolveViaLoginShell(_ tool: String) -> String? {
@@ -135,6 +144,15 @@ enum AgentRuntimePath {
         } catch {
             return nil
         }
+
+        let watchdog = DispatchQueue(label: "com.kris.mailwidget.agentRuntimePath.loginShellProbe")
+        watchdog.asyncAfter(deadline: .now() + loginShellProbeTimeout) {
+            if process.isRunning { process.terminate() }
+        }
+
+        // `command -v` 的输出是一行路径，远小于管道缓冲区，所以这里读到 EOF 再
+        // `waitUntilExit()` 不会触发经典的 Pipe 死锁。被看门狗 terminate 掉时管道关闭、
+        // 这次读取正常返回，随后的非零退出码把结果判成 nil。
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else { return nil }
