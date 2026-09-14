@@ -20,6 +20,7 @@
 		122C892F7CF2A5CDBFD45344 /* MailMessageLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0D919C11592B5347B439A1F /* MailMessageLink.swift */; };
 		160C7C728CC7CB404ED1A920 /* DailyLinkAvailabilityStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C4DB35404881151A214EA13 /* DailyLinkAvailabilityStore.swift */; };
 		1676B7650C134DB607F9FCF0 /* MailSummaryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 397B861798543EFD8D7C48F6 /* MailSummaryStore.swift */; };
+		170DF5B8EA6085717A70A341 /* EmptyPayloadGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4874BD96943F457B26FEB14C /* EmptyPayloadGuardTests.swift */; };
 		180AEF1211C812035C5BF3AA /* AgentCLILocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F88505C6D99C55A93258EDAA /* AgentCLILocator.swift */; };
 		183CC59487097AF238FD271D /* DailyBriefTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020CFC557B5EF71CBA9508EC /* DailyBriefTests.swift */; };
 		1AB7D3A9CF2D1BDFDD5C757A /* MailWidgetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0326AEF2D5881E2CA5364D26 /* MailWidgetView.swift */; };
@@ -182,6 +183,7 @@
 		397B861798543EFD8D7C48F6 /* MailSummaryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailSummaryStore.swift; sourceTree = "<group>"; };
 		3B311D3EF12C476AAA643399 /* IngestCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IngestCommand.swift; sourceTree = "<group>"; };
 		40D1C9E1DFBB94041959CD10 /* SharedComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedComponents.swift; sourceTree = "<group>"; };
+		4874BD96943F457B26FEB14C /* EmptyPayloadGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmptyPayloadGuardTests.swift; sourceTree = "<group>"; };
 		555D2FBB87F0611A6C54BD7A /* DailySourceInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailySourceInstaller.swift; sourceTree = "<group>"; };
 		5A8B81728D6BD16EBBD83A62 /* MailContentFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailContentFetcher.swift; sourceTree = "<group>"; };
 		65D0E37870AB2365A8CA4F20 /* MailLocalIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailLocalIndex.swift; sourceTree = "<group>"; };
@@ -247,6 +249,7 @@
 				296E1A65CA159AA8B9849D26 /* DailyRegeneratorWatchdogTests.swift */,
 				D92EF6C280EC959A9B6AE0A6 /* DailySummaryPromptTemplateTests.swift */,
 				B322827F305FD30D02693902 /* DailySummaryTests.swift */,
+				4874BD96943F457B26FEB14C /* EmptyPayloadGuardTests.swift */,
 				F10E013CB3A3C52B11C6D2A0 /* EnvelopeIndexProviderRealDataTests.swift */,
 				9BFC5DFBC266EDAB13826A9C /* LaunchAgentRunnerScriptTests.swift */,
 				DBD70877A87514FD2ED6426F /* MailAccountProbeTests.swift */,
@@ -610,6 +613,7 @@
 				C0A16865E8E49C560F3F831E /* DailySummaryPublisher.swift in Sources */,
 				F6F2D498F790A8CFE3F918CF /* DailySummaryStore.swift in Sources */,
 				F232808E9656FE042040D6CE /* DailySummaryTests.swift in Sources */,
+				170DF5B8EA6085717A70A341 /* EmptyPayloadGuardTests.swift in Sources */,
 				94AAD02E434D395D3AD95861 /* EnvelopeIndexProvider.swift in Sources */,
 				9621738D335509CEB7A05B10 /* EnvelopeIndexProviderRealDataTests.swift in Sources */,
 				00D4DD521E599E4DC2EE721D /* LaunchAgentRunnerScript.swift in Sources */,

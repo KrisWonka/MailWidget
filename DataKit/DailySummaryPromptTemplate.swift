@@ -197,7 +197,11 @@ enum DailySummaryPromptTemplate {
     browser.
 
     On a verified zero-message run, publish `items: []` with a short Chinese `headline` saying \
-    there is no new mail requiring attention.
+    there is no new mail requiring attention. Always publish whatever you found: deciding on \
+    your own not to publish is never correct. Whether an empty payload is allowed to replace \
+    the brief currently on the widget is decided by the ingest command, not by you — when it \
+    declines it prints `保留今天已发布的日报` and exits 0, which is success, not a rejection; \
+    report it in Chinese and do not retry.
 
     ### 2. Hand the payload to the widget
 

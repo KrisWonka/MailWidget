@@ -44,19 +44,30 @@ enum IngestCommand {
             return 3
         }
 
+        // 发布链路走 `DailySummaryPublisher.publish` 这一条，不再在这里重写一遍。
+        // 原先这里和 publisher 各有一份"解码 → save → recordSuccessfulIngest →
+        // refresh 可用性"，两份会漂移——2026-09-14 加零条目守门时就发现只改 publisher
+        // 根本拦不住真正的入口（agent 调的是 `--ingest`，走的是这里）。这个仓库已经
+        // 因为"两条路径本该同构却各写一份"栽过四次，不再增加第五次。
         do {
-            let summary = try DailySummaryCodec.decode(Data(contentsOf: inputURL))
-            let store = try DailySummaryStore()
-            try store.save(summary)
-            DailySourceSettings.recordSuccessfulIngest(source: source)
-            // 载荷已经落盘、退出码已经确定为「已发布」之后才刷新可用性 —— 这一步只是给
-            // 详情页/widget 补一份"这封信本地 Mail 里有没有"的旁路信息，查询本身失败
-            // （store 内部已吞掉）也不该让 ingest 从 0 变成别的码。
-            DailyLinkAvailabilityStore.refresh(for: summary.items.compactMap(\.messageIdHeader))
+            let summary = try DailySummaryPublisher.publish(payloadURL: inputURL, source: source)
             WidgetCenter.shared.reloadTimelines(ofKind: DailySummaryConstants.kind)
             flushWidgetCenterRequests()
             print("已更新 Gmail 日报：\(summary.items.count) 条" + (source.map { "（来源 \($0)）" } ?? ""))
             return 0
+        } catch let error as DailySummaryPublisherError {
+            switch error {
+            case .sourceRejected:
+                // 理论上到不了这里（上面已经先仲裁过一次），留着是为了穷尽分支。
+                writeError(error.localizedDescription + "上一份日报保持不变。")
+                return 3
+            case .emptyPayloadWouldEraseCurrentBrief:
+                // **不是错误**：这次确实没有新邮件，保留上一份日报才是正确行为。
+                // 退出码必须是 0——提示词告诉 agent「非 0 表示载荷被拒绝，要在输出里
+                // 报错」，这里报错只会让 agent 以为自己搞砸了然后去重试。
+                print(error.localizedDescription)
+                return 0
+            }
         } catch {
             writeError("Gmail 日报写入失败：\(error.localizedDescription)")
             return 1

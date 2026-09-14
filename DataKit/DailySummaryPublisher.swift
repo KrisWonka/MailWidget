@@ -20,12 +20,24 @@ enum DailySummaryPublisherError: LocalizedError {
     /// `IngestCommand` 退出码 3 的语义一致。
     case sourceRejected(incoming: String, selected: String)
 
+    /// 一份**合法但零条目**的载荷会把今天已经发布过、还有内容的日报整个抹掉。
+    /// 不是错误，是"这次没什么可更新的，保留上一份"。
+    case emptyPayloadWouldEraseCurrentBrief(existingItemCount: Int)
+
     var errorDescription: String? {
         switch self {
         case let .sourceRejected(incoming, selected):
             return "已忽略来自 \(incoming) 的日报：当前日报源设置为 \(selected)。"
+        case let .emptyPayloadWouldEraseCurrentBrief(existingItemCount):
+            return "本次没有新邮件，保留今天已发布的日报（\(existingItemCount) 条）。"
         }
     }
+}
+
+/// 零条目载荷该不该覆盖已有日报——纯判定，方便单测直接喂值。
+enum EmptyPayloadDecision: Equatable {
+    case publish
+    case keepExisting(existingItemCount: Int)
 }
 
 enum DailySummaryPublisher {
@@ -40,9 +52,60 @@ enum DailySummaryPublisher {
 
         let summary = try DailySummaryCodec.decode(Data(contentsOf: payloadURL))
         let store = try DailySummaryStore()
+
+        // 零条目守门。2026-09-14 实录：09:29 发布了一份带 `immediate` 的日报（回复
+        // 口语诊所改约），用户 3 分钟后点了一下「立即刷新」，这次增量查询自然是零封
+        // 新邮件，agent 按提示词规则发布 `items: []`，**把那条还没办的事整个抹掉了**，
+        // 用户看到的就是"widget 什么都不显示了"。
+        //
+        // 根子在于日报是**增量**的（按游标），而 widget 把它当"当前待办清单"展示：
+        // 刚跑完没多久再点一次刷新，几乎必然零新邮件，于是那个 ↻ 按钮成了清空待办的
+        // 地雷。agent 自己也知道不对——它在运行输出里专门写了一段警告说"小组件现在
+        // 被刷成了空的，但这件事还没办"——但它受提示词规则约束只能照做。
+        //
+        // 所以闸门放在这里而不是提示词里：提示词同步改了（见
+        // `DailySummaryPromptTemplate`），但**发布层才是真闸门，agent 说什么不算数**，
+        // 这是本仓库反复确认过的原则。
+        if case let .keepExisting(count) = emptyPayloadDecision(
+            incomingItemCount: summary.items.count,
+            existing: try? store.load()
+        ) {
+            throw DailySummaryPublisherError.emptyPayloadWouldEraseCurrentBrief(existingItemCount: count)
+        }
+
         try store.save(summary)
         DailySourceSettings.recordSuccessfulIngest(source: source)
         DailyLinkAvailabilityStore.refresh(for: summary.items.compactMap(\.messageIdHeader))
         return summary
+    }
+
+    static func emptyPayloadDecision(incomingItemCount: Int, existing: DailySummary?) -> EmptyPayloadDecision {
+        emptyPayloadDecision(
+            incomingItemCount: incomingItemCount,
+            existingItemCount: existing?.items.count ?? 0,
+            existingGeneratedAt: existing?.generatedDate
+        )
+    }
+
+    /// 边界取「同一个自然日」而不是某个拍脑袋的时长：日报本来就是按天的东西。
+    ///
+    /// - 今天已经发过有内容的日报 → 零条目载荷一律不覆盖（这就是本次的 bug）。
+    /// - 已有的是**昨天**的 → 放行。新的一天该重新开始，定时任务发空日报是正常行为。
+    /// - 已有的本来就是空的 → 放行（空盖空，无所谓）。
+    ///
+    /// ⚠️ 已知没解决的那一半：一条**昨天**发布、今天仍然要办的事（比如"明早 10:00
+    /// 的约"），会在第二天早上的空日报里消失。真正的解法是让条目有生命周期、跨天
+    /// 结转未完成项，那是另一个功能，不在这次修复范围里。
+    static func emptyPayloadDecision(
+        incomingItemCount: Int,
+        existingItemCount: Int,
+        existingGeneratedAt: Date?,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) -> EmptyPayloadDecision {
+        guard incomingItemCount == 0 else { return .publish }
+        guard existingItemCount > 0, let existingGeneratedAt else { return .publish }
+        guard calendar.isDate(existingGeneratedAt, inSameDayAs: now) else { return .publish }
+        return .keepExisting(existingItemCount: existingItemCount)
     }
 }

@@ -91,7 +91,7 @@ struct DailySummaryWidgetView: View {
             // （header 溢出在这个 widget 上已经返工过一次，不能再犯）。
             // 上界是 14:59：`awaitingBriefSince` 超过 staleAfter(15 分钟) 就返回 nil，
             // 而看门狗 14 分钟就把进程杀了，所以计时器不可能出现三位数分钟。
-            if entry.regenerateStartedAt == nil, let date = entry.brief?.generatedDate {
+            if let date = entry.brief?.generatedDate {
                 Text(Self.generatedAtFormatter.string(from: date))
                     .font(WidgetTheme.metaFont)
                     .foregroundStyle(.secondary)
@@ -134,16 +134,11 @@ struct DailySummaryWidgetView: View {
     /// 也不会把同排的标题挤到换行（header 溢出在这个 widget 上返工过一次）。
     @ViewBuilder
     private var regenerateControl: some View {
-        if let startedAt = entry.regenerateStartedAt {
-            HStack(spacing: 3) {
-                Text("生成中")
-                Text(startedAt, style: .timer)
-                    .monospacedDigit()
-            }
-            .font(WidgetTheme.metaFont)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .fixedSize()
+        if entry.regenerateStartedAt != nil {
+            Text("生成中…")
+                .font(WidgetTheme.metaFont)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         } else {
             Link(destination: URL(string: "mailwidget://regenerateDaily")!) {
                 Image(systemName: "arrow.clockwise")
