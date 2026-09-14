@@ -64,6 +64,15 @@ launchd 脚本时漏了"：
 4. **agent 会谎报发布成功**：headless 模式下可能拿不到执行命令的权限，却在输出里声称
    "ingest 退出码 0，已发布"。脚本层自己跑一遍 ingest 不经过任何权限系统，是确定性的。
 
+4. **「显示等待」和「进程还活着」是两件事，不能合成一个布尔值。** widget 的「生成中」
+   该在**日报落地那一刻**结束（`awaitingBriefSince`，判据是 `lastIngestAt >= startedAt`），
+   而防重入和看门狗必须撑到**进程真正退出**（`isRegenerating`）。实测两者差 25–28 秒——
+   agent 发布完还要写游标、打运行总结。合并的话只能二选一：要么 widget 白挂半分钟，
+   要么用户能在前一个 agent 还活着时点出第二个并发 agent。
+5. **看门狗超时必须严格小于 flag 的过期时间**，维持不变式「flag 过期 ⇒ 进程已被杀死」。
+   杀的时候注意 `Process` 默认不给子进程单独开进程组，无条件 `kill(-pgid)` 会把宿主
+   app 自己一起杀掉——只在子进程自成一组（`pgid == pid`）时才按组杀。
+
 **其它**：
 
 - **`hostExecutableURL` 只接受 `MailWidget.app` 内部的可执行文件** —— 曾经用临时 harness 二进制装了
@@ -87,6 +96,14 @@ launchd 脚本时漏了"：
 - **LSUIElement 后台 app 必须显式激活 Mail**（`NSRunningApplication.activate()` /
   `OpenConfiguration.activates = true`），否则窗口开在后面。
 - **bash 3.2**（macOS 自带）没有 `mapfile`/`readarray`，脚本里别用。
+- **widget 里表达「进行中」用 `Text(_:style:.timer)`**，由 WidgetKit 自己走字，不需要重建
+  timeline。曾有注释断言"widget 不支持动画，静态文案是唯一办法"，是错的。这条路径一次
+  真实运行 4–5 分钟，五分钟盯着纹丝不动的「生成中…」，唯一合理的推断就是它死了——
+  2026-09-14 用户报的正是这个，而后台其实在正常工作。
+- **改 header 必须实际渲染一遍再提交**（329pt 宽，medium/large 同宽）。加计时器时实测
+  「生成中 14:59」+ 日期会把标题截成「Gmail…」；解法是生成中时隐藏日期——那是**上一份**
+  日报的时间，马上要被替换，是这排里最没用的元素。用 `ImageRenderer` 按真实字体和宽度
+  渲染最坏值即可，不要靠估。
 
 ## 分发给第二台机器
 

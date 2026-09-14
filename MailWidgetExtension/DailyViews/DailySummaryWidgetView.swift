@@ -85,7 +85,13 @@ struct DailySummaryWidgetView: View {
                 .font(WidgetTheme.headerFont)
                 .lineLimit(1)
 
-            if let date = entry.brief?.generatedDate {
+            // 生成中时让位给计时器：这个日期是**上一份**日报的生成时间，马上就会被替换，
+            // 是这一排里最没用的元素。不让位的话 329pt 宽的 header 装不下——实测渲染
+            // 「生成中 14:59」+ 日期会把标题截成「Gmail…」，「日报」两个字直接没了
+            // （header 溢出在这个 widget 上已经返工过一次，不能再犯）。
+            // 上界是 14:59：`awaitingBriefSince` 超过 staleAfter(15 分钟) 就返回 nil，
+            // 而看门狗 14 分钟就把进程杀了，所以计时器不可能出现三位数分钟。
+            if entry.regenerateStartedAt == nil, let date = entry.brief?.generatedDate {
                 Text(Self.generatedAtFormatter.string(from: date))
                     .font(WidgetTheme.metaFont)
                     .foregroundStyle(.secondary)
@@ -112,16 +118,32 @@ struct DailySummaryWidgetView: View {
     }
 
     /// 重新触发当前日报源。走 `mailwidget://regenerateDaily`，由 AppDelegate 转发给
-    /// `DailyRegenerator.regenerate()`。生成中时原地换成「生成中…」文案而不是隐藏——
-    /// widget 不支持动画，静态文案是唯一能表达"进行中"的办法。两态共用
-    /// `WidgetTheme.metaFont`，图标换文字时这一格宽度不跳。
+    /// `DailyRegenerator.regenerate()`。
+    ///
+    /// 生成中时原地换成「生成中 M:SS」——**带一个会自己走的计时器**。原先是静态的
+    /// 「生成中…」，注释里写着"widget 不支持动画，静态文案是唯一能表达进行中的办法"，
+    /// 这个判断不对：`Text(_:style:.timer)` 是 WidgetKit 专门为此提供的 API，由系统
+    /// 自己走字，不需要重建 timeline。
+    ///
+    /// 为什么非要走字：这条路径一次真实运行 4–5 分钟（本机 8/23、8/24、9/14 三次实测
+    /// 分别是 4:00、4:49、4:46）。五分钟盯着一个纹丝不动的「生成中…」，唯一合理的
+    /// 推断就是它死了——2026-09-14 用户报的正是这个（"一直显示生成中…是不是坏了"），
+    /// 而当时后台其实在正常工作。让时间跳起来，"还活着"这件事就不用解释了。
+    ///
+    /// `monospacedDigit()` 是必须的：数字等宽，秒数跳动时这一格宽度才不会左右抖，
+    /// 也不会把同排的标题挤到换行（header 溢出在这个 widget 上返工过一次）。
     @ViewBuilder
     private var regenerateControl: some View {
-        if entry.isRegenerating {
-            Text("生成中…")
-                .font(WidgetTheme.metaFont)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+        if let startedAt = entry.regenerateStartedAt {
+            HStack(spacing: 3) {
+                Text("生成中")
+                Text(startedAt, style: .timer)
+                    .monospacedDigit()
+            }
+            .font(WidgetTheme.metaFont)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .fixedSize()
         } else {
             Link(destination: URL(string: "mailwidget://regenerateDaily")!) {
                 Image(systemName: "arrow.clockwise")

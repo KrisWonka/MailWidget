@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		00D4DD521E599E4DC2EE721D /* LaunchAgentRunnerScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 372A282D66F8A85154C3CB32 /* LaunchAgentRunnerScript.swift */; };
+		04CCA4A89F464FF8A1080155 /* DailyRegeneratorAwaitingBriefTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1928ED203D0166BE36F2BA8 /* DailyRegeneratorAwaitingBriefTests.swift */; };
 		07ABDB2A8AA2E8DDD7963805 /* DailySummaryWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAAE1D956B7E3D16AC85D17E /* DailySummaryWidget.swift */; };
 		08657F4BE3665AECF8CA7690 /* DailySummaryMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 385B04819CE550CDD0EE873D /* DailySummaryMigration.swift */; };
 		0978A00A5930F823A2F5E551 /* DailySourceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BF87032FCE8205DA575F229 /* DailySourceSettings.swift */; };
@@ -215,6 +216,7 @@
 		C6DBBA6AA400056D70FF5F99 /* MailDeepLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailDeepLink.swift; sourceTree = "<group>"; };
 		C73337E8E2F542AC6A054378 /* MailDataProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailDataProvider.swift; sourceTree = "<group>"; };
 		CBE2E9B4CBC564D11EA081F4 /* AgentRuntimePath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRuntimePath.swift; sourceTree = "<group>"; };
+		D1928ED203D0166BE36F2BA8 /* DailyRegeneratorAwaitingBriefTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyRegeneratorAwaitingBriefTests.swift; sourceTree = "<group>"; };
 		D3F22D5FDC09935BC835D409 /* SummarizeCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SummarizeCommand.swift; sourceTree = "<group>"; };
 		D4B259DA39E1B0BB915C53EC /* MailAccountStatusPublisher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailAccountStatusPublisher.swift; sourceTree = "<group>"; };
 		D92EF6C280EC959A9B6AE0A6 /* DailySummaryPromptTemplateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailySummaryPromptTemplateTests.swift; sourceTree = "<group>"; };
@@ -240,6 +242,7 @@
 				29A611D4815C63FAAAF9CB73 /* AgentRuntimePathTests.swift */,
 				8A909B2997269CF45D4515CB /* AppleScriptProviderErrorTests.swift */,
 				020CFC557B5EF71CBA9508EC /* DailyBriefTests.swift */,
+				D1928ED203D0166BE36F2BA8 /* DailyRegeneratorAwaitingBriefTests.swift */,
 				BD171D9464EBB5519DB55F7A /* DailyRegeneratorFallbackPublishTests.swift */,
 				296E1A65CA159AA8B9849D26 /* DailyRegeneratorWatchdogTests.swift */,
 				D92EF6C280EC959A9B6AE0A6 /* DailySummaryPromptTemplateTests.swift */,
@@ -596,6 +599,7 @@
 				183CC59487097AF238FD271D /* DailyBriefTests.swift in Sources */,
 				160C7C728CC7CB404ED1A920 /* DailyLinkAvailabilityStore.swift in Sources */,
 				E2CD94121AE275B020B32A80 /* DailyRegenerator.swift in Sources */,
+				04CCA4A89F464FF8A1080155 /* DailyRegeneratorAwaitingBriefTests.swift in Sources */,
 				97A713C78F5A1CDBEF0F11A2 /* DailyRegeneratorFallbackPublishTests.swift in Sources */,
 				DBDD6CDB6CC174C785427E2C /* DailyRegeneratorWatchdogTests.swift in Sources */,
 				0978A00A5930F823A2F5E551 /* DailySourceSettings.swift in Sources */,

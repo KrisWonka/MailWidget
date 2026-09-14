@@ -14,15 +14,21 @@ struct DailySummaryEntry: TimelineEntry {
     /// 打开 Mail 里那个邮箱，而不是掉进浏览器。
     let mailAccountID: String?
 
-    /// `DailyRegenerator.isRegenerating()` 的结果（15 分钟自动过期）。header 的
-    /// ↻ 按钮据此换成「生成中…」文案。
-    let isRegenerating: Bool
+    /// 本次「重新生成」的起始时刻；不在等待中为 nil。存日期而不是布尔值，是为了让
+    /// header 能用 `Text(_:style:.timer)` 显示已用时长——那个 API 由 WidgetKit 自己
+    /// 走字，**不需要重建 timeline**，是 widget 里唯一能表达"还在动"的手段。
+    ///
+    /// 取值来自 `DailyRegenerator.awaitingBriefSince()` 而不是 `isRegenerating()`：
+    /// 前者在日报落地那一刻就结束，后者要等 agent 进程完全退出（两者实测差 28 秒）。
+    let regenerateStartedAt: Date?
 
-    init(date: Date, brief: DailyBrief?, mailAccountID: String? = nil, isRegenerating: Bool = false) {
+    var isRegenerating: Bool { regenerateStartedAt != nil }
+
+    init(date: Date, brief: DailyBrief?, mailAccountID: String? = nil, regenerateStartedAt: Date? = nil) {
         self.date = date
         self.brief = brief
         self.mailAccountID = mailAccountID
-        self.isRegenerating = isRegenerating
+        self.regenerateStartedAt = regenerateStartedAt
     }
 }
 
@@ -34,7 +40,7 @@ struct DailySummaryProvider: TimelineProvider {
     func getSnapshot(in context: Context, completion: @escaping (DailySummaryEntry) -> Void) {
         completion(
             makeEntry(family: context.family)
-                ?? DailySummaryEntry(date: .now, brief: .placeholder, isRegenerating: DailyRegenerator.isRegenerating())
+                ?? DailySummaryEntry(date: .now, brief: .placeholder, regenerateStartedAt: DailyRegenerator.awaitingBriefSince())
         )
     }
 
@@ -43,7 +49,7 @@ struct DailySummaryProvider: TimelineProvider {
     /// 永远停在旧内容上。
     func getTimeline(in context: Context, completion: @escaping (Timeline<DailySummaryEntry>) -> Void) {
         let entry = makeEntry(family: context.family)
-            ?? DailySummaryEntry(date: .now, brief: nil, isRegenerating: DailyRegenerator.isRegenerating())
+            ?? DailySummaryEntry(date: .now, brief: nil, regenerateStartedAt: DailyRegenerator.awaitingBriefSince())
         let nextFallbackRefresh = Calendar.current.date(byAdding: .hour, value: 4, to: .now) ?? .now
         completion(Timeline(entries: [entry], policy: .after(nextFallbackRefresh)))
     }
@@ -63,7 +69,7 @@ struct DailySummaryProvider: TimelineProvider {
             date: .now,
             brief: brief,
             mailAccountID: accountID,
-            isRegenerating: DailyRegenerator.isRegenerating()
+            regenerateStartedAt: DailyRegenerator.awaitingBriefSince()
         )
     }
 

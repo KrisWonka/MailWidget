@@ -72,6 +72,40 @@ enum DailyRegenerator {
         return now.timeIntervalSince(startedAt) < staleAfter
     }
 
+    /// widget 该不该显示「生成中」，以及从什么时候开始算——返回本次等待的起始时刻，
+    /// 不在等待中返回 nil。
+    ///
+    /// **刻意与 `isRegenerating()` 分开，这两个问题不是一回事：**
+    ///
+    /// - `isRegenerating()` 回答"还有没有 agent 进程在跑"。它服务于防重入
+    ///   （`regenerate()` 开头那道 guard）和看门狗不变式，**必须等进程真正退出才转 false**，
+    ///   否则用户能在前一个 agent 还活着时点出第二个，两个一起往同一个 latest.json 写、
+    ///   各自推进游标。
+    /// - 这个函数回答"用户还在不在等一份新日报"。日报一落地，等待就结束了。
+    ///
+    /// 2026-09-14 实测两者差 28 秒：00:50:04 发布成功、00:50:32 进程才退出——agent 发布完
+    /// 还要写游标、打运行总结。把两件事合成一个布尔值就只能二选一：要么 widget 白挂
+    /// 28 秒，要么防重入判据在进程还活着时就放行。所以拆成两个。
+    ///
+    /// 判据里用的是 `DailySourceSettings.lastIngestAt`，它由发布链路唯一的咽喉
+    /// `recordSuccessfulIngest` 写入，`--ingest` 子命令和兜底发布都会经过，不会漏。
+    static func awaitingBriefSince(now: Date = Date()) -> Date? {
+        awaitingBriefSince(
+            startedAt: defaults?.object(forKey: startedAtKey) as? Date,
+            lastPublishedAt: DailySourceSettings.lastIngestAt,
+            now: now
+        )
+    }
+
+    /// 纯判定，方便单测直接喂三个时间点。
+    static func awaitingBriefSince(startedAt: Date?, lastPublishedAt: Date?, now: Date) -> Date? {
+        guard let startedAt, now.timeIntervalSince(startedAt) < staleAfter else { return nil }
+        // 本次运行开始之后落地过日报 ⇒ 等的东西已经到了。`>=` 而不是 `>`：同一秒内
+        // 发布完全可能（发布是另一个进程写的，时间戳精度有限），这种情况算已送达。
+        if let lastPublishedAt, lastPublishedAt >= startedAt { return nil }
+        return startedAt
+    }
+
     /// 按 `DailySourceSettings.selectedSource` 启动一次后台重新生成；立即返回，不阻塞调用方
     /// （`Process.run()` 本身是异步启动，不等待子进程）。
     static func regenerate() {
