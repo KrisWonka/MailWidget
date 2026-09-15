@@ -147,6 +147,40 @@ enum DailySourceInstaller {
         )
     }
 
+    // MARK: - 升级时刷新已装任务的提示词
+
+    /// 把磁盘上每一份 `prompt-<source>.md` 按当前模板重新渲染一遍。启动时调用一次。
+    ///
+    /// 2026-09-15 第二台机器实录暴露的问题：提示词是**装定时任务那一刻**写进
+    /// `prompt-<source>.md` 的，之后 app 再怎么升级都不会碰它。于是这几天改进模板的所有
+    /// 修复——时区跟随本机、零邮件不覆盖当天日报、游标换到可写目录——对**已经装好定时
+    /// 任务的机器一次都没生效过**，除非用户恰好又去点了一次「一键添加」。而那台机器上
+    /// 的日报正是由 9:00 的 launchd 任务产出的，用的一直是几天前那份旧提示词。
+    ///
+    /// 只重写真正需要重写的：渲染结果与磁盘内容一致就不动（避免每次启动都写盘）。
+    ///
+    /// **不渲染出占位符就不写**：`render` 在日报邮箱还没配置时会留下
+    /// `<<MAILBOX_NOT_CONFIGURED>>`，那种半成品绝不能覆盖掉一份原本好好的提示词——
+    /// 宁可保留旧的，也不要把定时任务喂成废的。
+    static func refreshInstalledPrompts() {
+        let manager = FileManager.default
+        let directory = DailySummaryConstants.dataDirectoryURL
+        guard let entries = try? manager.contentsOfDirectory(atPath: directory.path) else { return }
+
+        for entry in entries where entry.hasPrefix("prompt-") && entry.hasSuffix(".md") {
+            let sourceID = String(entry.dropFirst("prompt-".count).dropLast(".md".count))
+            guard !sourceID.isEmpty else { continue }
+
+            let rendered = DailySummaryPromptTemplate.render(for: sourceID)
+            guard DailySummaryPromptTemplate.unresolvedPlaceholders(in: rendered).isEmpty else { continue }
+
+            let url = directory.appendingPathComponent(entry)
+            if let existing = try? String(contentsOf: url, encoding: .utf8), existing == rendered { continue }
+            try? backup(url)
+            try? write(rendered, to: url)
+        }
+    }
+
     // MARK: - 出口 1b：Codex（launchd，全新安装）
 
     /// 给"这台机器上从来没有 `daily-gmail-summary` 历史任务"的场景补一条路径——
