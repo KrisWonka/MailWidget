@@ -123,31 +123,48 @@ final class LaunchAgentRunnerScriptTests: XCTestCase {
         XCTAssertEqual(process.terminationStatus, 0, "兜底发布成功后脚本应当以 0 退出，不再重试")
     }
 
-    /// 反向约束：载荷是上一次留下的旧件（mtime 早于本次尝试）时不得重复发布。
-    func testFallbackPublishSkipsStalePayload() throws {
+    /// 新鲜度判定已经从脚本里搬走——脚本只负责把**本次尝试的起始时刻**交给
+    /// `--ingest --not-before`，由 `DailySummaryPublisher.freshnessDecision` 统一裁决。
+    ///
+    /// 这条原本断言的是"脚本自己跳过陈旧载荷"。那份 shell 判据比 Swift 那份宽松
+    /// （只比 mtime、不比 generatedAt），两份实现各自演进正是这个仓库最主要的 bug 来源，
+    /// 所以判定收归一处，这里改为钉住"时刻确实被传下去了"。真正的判定逻辑由
+    /// `DailyRegeneratorFallbackPublishTests` 覆盖。
+    func testFallbackDelegatesFreshnessToIngest() {
+        let source = LaunchAgentRunnerScript.make(
+            command: "/usr/bin/true",
+            executablePath: nil,
+            fallbackIngest: (payloadPath: "/tmp/p.json", command: "/usr/bin/true")
+        )
+        XCTAssertTrue(
+            source.contains("--not-before \"$attempt_started\""),
+            "脚本没有把本次尝试的起始时刻交给 ingest\n\(source)"
+        )
+        XCTAssertFalse(
+            source.contains("/usr/bin/stat -f %m"),
+            "脚本里还留着自己那份 mtime 判据，应该已经搬到发布层了"
+        )
+    }
+
+    /// CLI 预检：坏 CLI 不该让定时任务白跑满三轮重试。
+    func testPreflightRejectsAnUnusableCLIBeforeLooping() throws {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("runner-stale-\(UUID().uuidString)")
+            .appendingPathComponent("runner-preflight-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let payload = directory.appendingPathComponent("latest.json").path
-        let marker = directory.appendingPathComponent("ingested").path
-        FileManager.default.createFile(atPath: payload, contents: Data("old".utf8))
-        try FileManager.default.setAttributes(
-            [.modificationDate: Date(timeIntervalSinceNow: -3600)],
-            ofItemAtPath: payload
-        )
+        // 一个 --version 就失败的假 CLI。
+        let cli = directory.appendingPathComponent("brokencli")
+        try "#!/bin/sh\nexit 3\n".write(to: cli, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
 
-        let source = LaunchAgentRunnerScript.make(
-            command: "/bin/sh -c 'exit 1'",
-            executablePath: nil,
-            fallbackIngest: (payloadPath: payload, command: "/usr/bin/touch \"\(marker)\"")
+        let marker = directory.appendingPathComponent("ran").path
+        let script = LaunchAgentRunnerScript.make(
+            command: "/usr/bin/touch \"\(marker)\"",
+            executablePath: cli.path
         )
-        // 三次尝试之间各 sleep 60s，测试里只跑到第一次判断即可——把重试间隔的 sleep
-        // 换成瞬时，避免测试挂 3 分钟。
-        let fast = source.replacingOccurrences(of: "/bin/sleep 60", with: "/usr/bin/true")
         let scriptURL = directory.appendingPathComponent("run.sh")
-        try fast.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
@@ -159,8 +176,44 @@ final class LaunchAgentRunnerScriptTests: XCTestCase {
 
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: marker),
-            "陈旧载荷不该被兜底发布"
+            "CLI 预检没拦住：命令仍然被执行了"
         )
-        XCTAssertEqual(process.terminationStatus, 1, "三次都失败且无新载荷，脚本应当以 1 退出")
+        XCTAssertEqual(process.terminationStatus, 1, "预检失败应当直接退出 1，不进重试循环")
+    }
+
+    /// 「生成中」标志：定时任务也要标记，否则它跑的时候用户点 ↻ 会并发起第二个 agent。
+    /// `trap ... EXIT` 保证异常退出也清得掉。
+    func testMarkerIsSetAndAlwaysCleared() throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("runner-marker-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let trace = directory.appendingPathComponent("trace").path
+        let marker = directory.appendingPathComponent("mark.sh")
+        try "#!/bin/sh\necho \"$1\" >> \"\(trace)\"\n".write(to: marker, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: marker.path)
+
+        // `/usr/bin/true` 而不是 `/bin/true`：macOS 上没有后者，写错会让命令以 127 失败、
+        // 脚本跑满三轮重试（每轮 sleep 60），这条测试就要跑 180 秒。
+        let script = LaunchAgentRunnerScript.make(
+            command: "/usr/bin/true",
+            executablePath: nil,
+            markerCommand: "\"\(marker.path)\""
+        )
+        let scriptURL = directory.appendingPathComponent("run.sh")
+        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [scriptURL.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+
+        let recorded = (try? String(contentsOfFile: trace, encoding: .utf8)) ?? ""
+        XCTAssertTrue(recorded.contains("start"), "没有标记开始\n\(recorded)")
+        XCTAssertTrue(recorded.contains("end"), "退出时没有清掉标记\n\(recorded)")
     }
 }

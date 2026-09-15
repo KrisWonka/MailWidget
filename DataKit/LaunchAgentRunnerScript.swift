@@ -48,18 +48,42 @@ enum LaunchAgentRunnerScript {
     static func make(
         command: String,
         executablePath: String? = nil,
+        markerCommand: String? = nil,
         fallbackIngest: (payloadPath: String, command: String)? = nil
     ) -> String {
+        // CLI 可用性预检。app 内那条路径开跑前会调 `AgentCLILocator.unusableReason` 真的
+        // 探一次（真机实录：codex 0.137 文件在、一跑 `exec` 就因模型版本不兼容崩溃），
+        // 脚本这边一直没有——坏 CLI 会让定时任务白跑满三轮重试。这里用最轻的等价物：
+        // 先跑一次 `--version`，起不来就直接报错退出，不进重试循环。
+        let preflightBlock = executablePath.map { path in
+            """
+
+            if ! "\(path)" --version > /dev/null 2>&1; then
+              echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] \(path) 跑不起来（--version 失败），跳过本次运行"
+              exit 1
+            fi
+            """
+        } ?? ""
+
+        // 「生成中」标志：让 widget 在定时任务跑的时候也有进行中提示，更要紧的是让它与
+        // app 内的「立即刷新」互斥（同一个 App Group 键）。`trap` 保证异常退出也会清掉。
+        let markerBlock = markerCommand.map { command in
+            """
+
+            \(command) start 2>/dev/null || true
+            trap '\(command) end 2>/dev/null || true' EXIT
+            """
+        } ?? ""
+
         let pathExport = AgentRuntimePath.exportStatement(
             extraDirectories: executablePath.map(AgentRuntimePath.directoriesNeeded(toRun:)) ?? []
         )
         let ingestBlock = fallbackIngest.map { ingest in
             """
 
-              if [ -f "\(ingest.payloadPath)" ] \\
-                 && [ "$(/usr/bin/stat -f %m "\(ingest.payloadPath)")" -ge "$attempt_started" ]; then
-                echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] 兜底发布（本次尝试写出的载荷）"
-                if \(ingest.command); then
+              if [ -f "\(ingest.payloadPath)" ]; then
+                echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] 兜底发布（把本次尝试的起始时刻交给 --not-before 判定）"
+                if \(ingest.command) --not-before "$attempt_started"; then
                   exit 0
                 fi
                 echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] 兜底发布失败"
@@ -86,9 +110,9 @@ enum LaunchAgentRunnerScript {
         # 开 job control：让下面每个 `( ... ) &` 后台任务拿到独立进程组，超时时才能用
         # `kill -TERM -- -$pid` 把它和它 fork 出来的子孙一并收掉，而不是只砍直接子进程。
         set -m
-
-        for attempt in 1 2 3; do
-          echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] attempt ${attempt}/3"
+        \(preflightBlock)\(markerBlock)
+        for attempt in $(/usr/bin/seq 1 \(AgentRunPolicy.unattendedRetryCount)); do
+          echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] attempt ${attempt}/\(AgentRunPolicy.unattendedRetryCount)"
           # 兜底发布用它判断「这份载荷是不是本次尝试写的」——比原先的"20 分钟内"窗口精确，
           # 也不会把上一次尝试留下的载荷重复发布。
           attempt_started=$(/bin/date +%s)
@@ -96,9 +120,9 @@ enum LaunchAgentRunnerScript {
           ( \(command) ) &
           cmd_pid=$!
           (
-            /bin/sleep 1200
+            /bin/sleep \(Int(AgentRunPolicy.watchdogTimeout))
             if /bin/kill -0 "$cmd_pid" 2>/dev/null; then
-              echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] attempt ${attempt}/3 已跑满 20 分钟，判定挂死，终止进程组 -$cmd_pid" >&2
+              echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] attempt ${attempt}/\(AgentRunPolicy.unattendedRetryCount) 已跑满 \(Int(AgentRunPolicy.watchdogTimeout / 60)) 分钟，判定挂死，终止进程组 -$cmd_pid" >&2
               /bin/kill -TERM -- -"$cmd_pid" 2>/dev/null
               /bin/sleep 5
               /bin/kill -KILL -- -"$cmd_pid" 2>/dev/null
@@ -118,11 +142,11 @@ enum LaunchAgentRunnerScript {
           if [ "$status" -eq 0 ]; then
             exit 0
           fi
-          echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] failed (exit ${status}), retrying in 60s"
-          /bin/sleep 60
+          echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] failed (exit ${status}), retrying in \(AgentRunPolicy.unattendedRetryDelay)s"
+          /bin/sleep \(AgentRunPolicy.unattendedRetryDelay)
         done
 
-        echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] giving up after 3 attempts"
+        echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] giving up after \(AgentRunPolicy.unattendedRetryCount) attempts"
         exit 1
         """
     }

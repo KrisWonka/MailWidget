@@ -25,21 +25,11 @@ enum DailyRegenerator {
     /// App Group UserDefaults 里记录"重新生成已启动"的时间戳。
     static let startedAtKey = "dailyRegenerateStartedAt"
 
-    /// 超过这个时长视为过期。agent 一次真实运行远低于 15 分钟（本机实测 4–5 分钟）；
-    /// 这是防止进程被杀死、系统睡眠等异常打断 terminationHandler 后，widget 永久卡在
-    /// "重新生成中"的兜底。
-    static let staleAfter: TimeInterval = 15 * 60
-
-    /// 进程看门狗的超时，**必须严格小于 `staleAfter`**——这条不等式维持一个关键不变式：
-    ///
-    ///     flag 已过期（`isRegenerating() == false`）⇒ 上一次的子进程一定已经被杀死
-    ///
-    /// 没有这个不变式时，防重入判据（`guard !isRegenerating()`）是纯时间判断、跟进程
-    /// 死活无关：一次跑满 15 分钟的运行会让 flag 先过期，用户再点一次就**并发起第二个
-    /// agent**，两个 agent 同时往同一个 `latest.json` 写，还各自推进游标。launchd 那条
-    /// 路径早就有 20 分钟看门狗（`LaunchAgentRunnerScript`，连整个进程组一起 kill），
-    /// 手动这条一直什么都没有——又一处两条路径不同构。
-    static let watchdogTimeout: TimeInterval = staleAfter - 60
+    /// 两个数值都来自 `AgentRunPolicy`，与 launchd 那条路径共用——原先各写一份
+    /// （这边 14 分钟、脚本里 20 分钟），没有统一依据。保留这两个转发属性是因为
+    /// widget 与测试都按这个名字引用。
+    static var staleAfter: TimeInterval { AgentRunPolicy.staleAfter }
+    static var watchdogTimeout: TimeInterval { AgentRunPolicy.watchdogTimeout }
 
     /// widget 头部翻页键左侧要 reload 的两个 kind：日报 widget 与 Mail widget。
     /// 两个都 reload 不会造成额外副作用——只是让另一个本来没变化的 widget 多刷新一次。
@@ -104,6 +94,23 @@ enum DailyRegenerator {
         // 发布完全可能（发布是另一个进程写的，时间戳精度有限），这种情况算已送达。
         if let lastPublishedAt, lastPublishedAt >= startedAt { return nil }
         return startedAt
+    }
+
+    /// 供 launchd 脚本（经 `MailWidget --daily-run start`）标记"日报开始生成"。
+    /// 与 `regenerate()` 里那两行是同一件事，共用同一个键，因此两条路径天然互斥。
+    static func markRunStarted() {
+        defaults?.set(Date(), forKey: startedAtKey)
+        // `synchronize()` 在常规代码里确实过时了，但这里的调用方是
+        // `MailWidget --daily-run start`——写完立刻 `Darwin.exit`，快到 UserDefaults 的
+        // 异步落盘根本来不及。2026-09-15 实测：不加这一行，写进去的值**一次都读不回来**
+        // （`defaults read` 立刻查和等 2 秒后再查都是 key not found）。
+        defaults?.synchronize()
+        reloadWidgets()
+    }
+
+    /// 对应的收尾。与 `finishEarly()` 同义，只是需要一个非 private 的入口。
+    static func markRunFinished() {
+        finishEarly()
     }
 
     /// 按 `DailySourceSettings.selectedSource` 启动一次后台重新生成；立即返回，不阻塞调用方
@@ -264,45 +271,22 @@ enum DailyRegenerator {
 
     // MARK: - 兜底发布（agent 跑完了但没执行 --ingest）
 
-    /// 兜底发布该不该真的执行——纯判定，不碰文件系统/App Group，方便单测直接喂值。
-    enum FallbackPublishDecision: Equatable {
-        case publish
-        /// `reason` 是给日志看的中文说明，不是错误。
-        case skip(reason: String)
-    }
+    /// 判定本体已搬进 `DailySummaryPublisher.freshnessDecision` —— launchd 那条路径也要用
+    /// 同一条规则，而它只能经由 `--ingest` 抵达发布层。这里保留同名转发，测试与调用点不变。
+    typealias FallbackPublishDecision = DailySummaryPublisher.FreshnessDecision
 
-    /// - Parameters:
-    ///   - stagingModifiedAt: 交接目录 `latest.json` 的文件修改时间；文件不存在传 nil。
-    ///   - runStartedAt: 本次 `regenerate()` 调用开始的时间。
-    ///   - stagingGeneratedAt: 交接目录载荷里 `generatedAt` 字段解析出的时间；解析不出
-    ///     （字段缺失、格式不对）传 nil——这不该挡住发布，真正的格式校验交给
-    ///     `DailySummaryPublisher.publish` 的 `DailySummaryCodec.decode`。
-    ///   - publishedGeneratedAt: App Group 里已经发布的日报的 `generatedAt`；App Group
-    ///     里还没有日报（或读取失败）传 nil。
     static func fallbackPublishDecision(
         stagingModifiedAt: Date?,
         runStartedAt: Date,
         stagingGeneratedAt: Date?,
         publishedGeneratedAt: Date?
     ) -> FallbackPublishDecision {
-        guard let stagingModifiedAt else {
-            return .skip(reason: "交接目录里没有 latest.json，agent 大概率没走到写文件那一步")
-        }
-        guard stagingModifiedAt >= runStartedAt else {
-            return .skip(reason: "latest.json 是本次运行开始之前留下的旧文件，跳过兜底发布")
-        }
-        guard let publishedGeneratedAt else {
-            return .publish
-        }
-        guard let stagingGeneratedAt else {
-            // 载荷确实是这次运行写的，只是 generatedAt 解析不出来——不能据此判断新旧，
-            // 宁可放行让真正的发布步骤去做完整校验，也不要因为一个次要字段漏发。
-            return .publish
-        }
-        guard stagingGeneratedAt > publishedGeneratedAt else {
-            return .skip(reason: "App Group 里已经是不早于这份载荷的日报，agent 大概率已经自己发布过了")
-        }
-        return .publish
+        DailySummaryPublisher.freshnessDecision(
+            stagingModifiedAt: stagingModifiedAt,
+            runStartedAt: runStartedAt,
+            stagingGeneratedAt: stagingGeneratedAt,
+            publishedGeneratedAt: publishedGeneratedAt
+        )
     }
 
     /// IO 薄层：读交接目录的文件时间 + 解析出的 generatedAt、读 App Group 现有日报的
@@ -385,6 +369,9 @@ enum DailyRegenerator {
     /// 都不该让 widget 卡在"重新生成中"直到 15 分钟过期。
     private static func finishEarly() {
         defaults?.removeObject(forKey: startedAtKey)
+        // 同 `markRunStarted()`：`--daily-run end` 这条路径写完就退出，必须强制落盘，
+        // 否则标志清不掉，widget 要挂到 15 分钟过期才恢复。
+        defaults?.synchronize()
         reloadWidgets()
     }
 

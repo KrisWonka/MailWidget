@@ -24,12 +24,17 @@ enum DailySummaryPublisherError: LocalizedError {
     /// 不是错误，是"这次没什么可更新的，保留上一份"。
     case emptyPayloadWouldEraseCurrentBrief(existingItemCount: Int)
 
+    /// 载荷不是本次运行写出来的（或者已经有人发过更新的了）。同样不是错误。
+    case staleForThisRun(reason: String)
+
     var errorDescription: String? {
         switch self {
         case let .sourceRejected(incoming, selected):
             return "已忽略来自 \(incoming) 的日报：当前日报源设置为 \(selected)。"
         case let .emptyPayloadWouldEraseCurrentBrief(existingItemCount):
             return "本次没有新邮件，保留今天已发布的日报（\(existingItemCount) 条）。"
+        case let .staleForThisRun(reason):
+            return "跳过发布：\(reason)"
         }
     }
 }
@@ -45,13 +50,29 @@ enum DailySummaryPublisher {
     /// 想用它的 `items.count` 之类的信息打日志）；来源不符或解码/校验/落盘失败都会抛错，
     /// 不写入任何字节——上一份有效日报永远不会被一份坏数据或错来源的数据顶掉。
     @discardableResult
-    static func publish(payloadURL: URL, source: String?) throws -> DailySummary {
+    /// `notBefore` 非 nil 时额外做一层「这份载荷是不是本次运行写的」判定——**兜底发布**
+    /// 专用。原先这条规则有两份实现：`DailyRegenerator` 里一份 Swift 判定（还会比
+    /// `generatedAt`），launchd 脚本里一份 shell 判定（只比 mtime），严格程度不同。
+    /// 现在统一收在这里，shell 那边只负责把本次尝试的起始时刻传进来。
+    static func publish(payloadURL: URL, source: String?, notBefore: Date? = nil) throws -> DailySummary {
         if case let .reject(incoming, selected) = DailySourceSettings.decide(incomingSource: source) {
             throw DailySummaryPublisherError.sourceRejected(incoming: incoming, selected: selected)
         }
 
         let summary = try DailySummaryCodec.decode(Data(contentsOf: payloadURL))
         let store = try DailySummaryStore()
+
+        if let notBefore {
+            let modifiedAt = (try? FileManager.default.attributesOfItem(atPath: payloadURL.path)[.modificationDate]) as? Date
+            if case let .skip(reason) = freshnessDecision(
+                stagingModifiedAt: modifiedAt,
+                runStartedAt: notBefore,
+                stagingGeneratedAt: summary.generatedDate,
+                publishedGeneratedAt: (try? store.load())?.generatedDate
+            ) {
+                throw DailySummaryPublisherError.staleForThisRun(reason: reason)
+            }
+        }
 
         // 零条目守门。2026-09-14 实录：09:29 发布了一份带 `immediate` 的日报（回复
         // 口语诊所改约），用户 3 分钟后点了一下「立即刷新」，这次增量查询自然是零封
@@ -77,6 +98,47 @@ enum DailySummaryPublisher {
         DailySourceSettings.recordSuccessfulIngest(source: source)
         DailyLinkAvailabilityStore.refresh(for: summary.items.compactMap(\.messageIdHeader))
         return summary
+    }
+
+    /// 兜底发布该不该真的执行——纯判定，不碰文件系统/App Group，方便单测直接喂值。
+    enum FreshnessDecision: Equatable {
+        case publish
+        /// `reason` 是给日志看的中文说明，不是错误。
+        case skip(reason: String)
+    }
+
+    /// - Parameters:
+    ///   - stagingModifiedAt: 交接目录 `latest.json` 的文件修改时间；文件不存在传 nil。
+    ///   - runStartedAt: 本次 `regenerate()` 调用开始的时间。
+    ///   - stagingGeneratedAt: 交接目录载荷里 `generatedAt` 字段解析出的时间；解析不出
+    ///     （字段缺失、格式不对）传 nil——这不该挡住发布，真正的格式校验交给
+    ///     `DailySummaryPublisher.publish` 的 `DailySummaryCodec.decode`。
+    ///   - publishedGeneratedAt: App Group 里已经发布的日报的 `generatedAt`；App Group
+    ///     里还没有日报（或读取失败）传 nil。
+    static func freshnessDecision(
+        stagingModifiedAt: Date?,
+        runStartedAt: Date,
+        stagingGeneratedAt: Date?,
+        publishedGeneratedAt: Date?
+    ) -> FreshnessDecision {
+        guard let stagingModifiedAt else {
+            return .skip(reason: "交接目录里没有 latest.json，agent 大概率没走到写文件那一步")
+        }
+        guard stagingModifiedAt >= runStartedAt else {
+            return .skip(reason: "latest.json 是本次运行开始之前留下的旧文件，跳过兜底发布")
+        }
+        guard let publishedGeneratedAt else {
+            return .publish
+        }
+        guard let stagingGeneratedAt else {
+            // 载荷确实是这次运行写的，只是 generatedAt 解析不出来——不能据此判断新旧，
+            // 宁可放行让真正的发布步骤去做完整校验，也不要因为一个次要字段漏发。
+            return .publish
+        }
+        guard stagingGeneratedAt > publishedGeneratedAt else {
+            return .skip(reason: "App Group 里已经是不早于这份载荷的日报，agent 大概率已经自己发布过了")
+        }
+        return .publish
     }
 
     static func emptyPayloadDecision(incomingItemCount: Int, existing: DailySummary?) -> EmptyPayloadDecision {

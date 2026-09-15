@@ -19,6 +19,16 @@ struct MailWidgetApp: App {
             fflush(stderr)
             Darwin.exit(exitCode)
         }
+        // `MailWidget --daily-run <start|end>`：launchd 脚本用它标记「日报正在生成」，
+        // 与 app 内那条路径共用同一个 App Group 键，两条路径因此天然互斥。同一先例，
+        // 处理完立即退出。
+        if let exitCode = DailyRunMarkerCommand.runIfRequested(
+            arguments: ProcessInfo.processInfo.arguments
+        ) {
+            fflush(stdout)
+            fflush(stderr)
+            Darwin.exit(exitCode)
+        }
         // 契约 12：`MailWidget --summarize <scopeID>`，同一先例——同步跑完就退出，
         // 不建立任何 Scene。
         if let exitCode = SummarizeCommand.runIfRequested(

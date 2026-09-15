@@ -74,12 +74,15 @@ entitlements 和 Info.plist 两边都会展开。**证书 CN 括号里那串不�
 - `DailySourceInstaller.refreshInstalledArtifacts()` —— **启动时**把已装任务的提示词和
   runner 脚本按当前代码重渲染，解决"生成物冻结在磁盘上"这一类。
 
-**仍未收敛（已知，按影响排序）**：
-1. 兜底发布的判据两份实现：A 是 `fallbackPublishDecision`（还比 `generatedAt`），
-   B 是 shell 里的 `mtime >= attempt_started`。两者严格程度不同。
-2. B 有 3 次重试 + 20 分钟看门狗，A 无重试 + 14 分钟看门狗。数值没有统一依据。
-3. CLI 可用性预检（`AgentCLILocator.unusableReason`）只有 A 有；B 遇到坏 CLI 会白跑三轮。
-4. 「生成中」标志只有 A 会写，定时任务跑的时候 widget 上没有任何提示。
+**仍未收敛**：暂无。上一轮列的四项已于 2026-09-15 全部收敛：
+- 兜底发布的新鲜度判据搬进 `DailySummaryPublisher.freshnessDecision`，脚本改为把本次尝试
+  的起始时刻经 `--ingest --not-before <unix>` 交上去，不再自己判。
+- 看门狗 / 重试次数 / 重试间隔收进 `AgentRunPolicy`（原先 app 内 14 分钟、脚本 20 分钟，
+  没有统一依据）。
+- CLI 预检补进脚本（跑一次 `--version`，起不来直接退出，不进重试循环）。
+- 「生成中」标志改由两条路径共写同一个键（脚本经 `MailWidget --daily-run start|end`，
+  `trap ... EXIT` 保证异常退出也清得掉）。这条的要害不是显示，是**互斥**：早上 9 点任务
+  正在跑时用户点 ↻，原先 `guard !isRegenerating()` 看不到它，会并发起第二个 agent。
 
 **动手前的固定检查**：你要改的行为，B 那条路径上对应的位置在哪？没有对应位置就说明它
 漏了。加不了共用定义时，至少加一条 parity 测试。

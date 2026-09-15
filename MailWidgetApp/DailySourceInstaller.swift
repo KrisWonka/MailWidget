@@ -197,6 +197,7 @@ enum DailySourceInstaller {
                     promptFileExpression: "\"\(promptPath)\""
                 ),
                 executablePath: cliPath,
+                markerCommand: dailyRunMarkerCommand,
                 fallbackIngest: (
                     payloadPath: directory.appendingPathComponent(
                         DailySummaryConstants.summaryFilename
@@ -336,6 +337,7 @@ enum DailySourceInstaller {
                     with: "\"\(promptURL.path)\""
                 ),
                 executablePath: executablePath,
+                markerCommand: dailyRunMarkerCommand,
                 fallbackIngest: (
                     payloadPath: dataDir.appendingPathComponent(
                         DailySummaryConstants.summaryFilename
@@ -379,13 +381,20 @@ enum DailySourceInstaller {
     static func runnerScript(
         command: String,
         executablePath: String? = nil,
+        markerCommand: String? = nil,
         fallbackIngest: (payloadPath: String, command: String)? = nil
     ) -> String {
         LaunchAgentRunnerScript.make(
             command: command,
             executablePath: executablePath,
+            markerCommand: markerCommand,
             fallbackIngest: fallbackIngest
         )
+    }
+
+    /// `MailWidget --daily-run` 的完整命令前缀，脚本用它标记生成中。
+    static var dailyRunMarkerCommand: String {
+        "\"\(DailySummaryPromptTemplate.hostExecutableURL.path)\" --daily-run"
     }
 
     static func launchAgentPlist(

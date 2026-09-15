@@ -74,3 +74,32 @@ enum AgentInvocation {
         return "\"\(executablePath)\" \(flagText) \"$(cat \(promptFileExpression))\" < /dev/null"
     }
 }
+
+/// 跑一次 agent 的策略参数。和 `AgentInvocation` 同理：这些数值原先散在两条路径上
+/// 各写一份（app 内 14 分钟看门狗、launchd 脚本 20 分钟 `sleep 1200`），没有任何统一依据，
+/// 纯粹是各自随手定的。收在一处，改一次两边都动。
+enum AgentRunPolicy {
+    /// 「重新生成中」这个标志多久算过期。widget 靠它判断要不要显示进行中状态，
+    /// 两条路径也靠它互斥（见 `unattendedMarksRegenerating` 的说明）。
+    static let staleAfter: TimeInterval = 15 * 60
+
+    /// 进程看门狗超时。**必须严格小于 `staleAfter`**，维持不变式：
+    ///
+    ///     标志已过期 ⇒ 上一次的 agent 进程一定已经被杀死
+    ///
+    /// 没有这条不等式，防重入判据就只是时间判断、跟进程死活无关：一次跑满 15 分钟的运行
+    /// 会让标志先过期，用户再点一次就并发起第二个 agent，两个一起往同一个 latest.json 写、
+    /// 各自推进游标。
+    ///
+    /// 14 分钟对真实运行是宽裕的：本机实测三次分别 4:00 / 4:49 / 4:46。
+    static let watchdogTimeout: TimeInterval = staleAfter - 60
+
+    /// 无人值守（launchd）时的重试次数。**app 内点刷新刻意不重试**——那条路径用户就在
+    /// 跟前，失败了他自己会再点，静默重试反而让他等更久且看不出发生了什么；定时任务没人
+    /// 看着，一次网络抖动就整天没有日报，所以要重试。
+    static let unattendedRetryCount = 3
+
+    /// 两次重试之间的间隔（秒）。
+    static let unattendedRetryDelay = 60
+}
+
