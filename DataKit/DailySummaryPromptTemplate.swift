@@ -51,18 +51,48 @@ enum DailySummaryPromptTemplate {
         return "\"\(executable)\" --ingest \"\(payload)\" --source \(sourceID)"
     }
 
-    /// Codex 沿用它自己的 `memory.md` —— 那个文件已经存着历史增量游标，换文件会丢失
-    /// 增量位置，导致邮件重复或漏报。其余来源各自用独立游标文件。
+    /// 游标文件一律放在本 app 自己的数据目录（`cursor-<source>.md`）。
+    ///
+    /// 历史上 codex 这一支特意指向 `~/.codex/automations/daily-gmail-summary/memory.md`，
+    /// 理由是"那个文件已经存着历史增量游标，换文件会丢失增量位置"——那只是**原作者本机**
+    /// 的情况。2026-09-15 第二台机器实录证明这个选择在全新安装上是错的：**codex 的沙箱把
+    /// 它自己的 `~/.codex` 目录设为只读**，agent 每一轮都在输出里写
+    /// 「`.codex` 目录受环境只读限制，游标未能写入；下次运行可能重复检索最近 24 小时邮件」，
+    /// 于是游标永远写不进去、每次都重扫最近 24 小时、每次产出几乎同一份简报——用户的体感
+    /// 就是"刷新是能刷新，但内容没怎么变"。
+    ///
+    /// 数据目录在 `~/Library/Application Support/GmailDailyWidget/`，落在 codex 沙箱的
+    /// workdir（home）可写范围内，实测能写。旧位置的内容由
+    /// `migrateLegacyCodexCursorIfNeeded()` 迁移过来，不丢增量位置。
     static func cursorPath(for sourceID: String) -> String {
-        if sourceID == DailySource.codex {
-            return URL(fileURLWithPath: NSHomeDirectory())
-                .appendingPathComponent(".codex/automations/daily-gmail-summary/memory.md").path
-        }
-        return DailySource.cursorFileURL(for: sourceID).path
+        DailySource.cursorFileURL(for: sourceID).path
+    }
+
+    /// 旧的 codex 游标位置。保留常量是为了迁移，不再作为写入目标。
+    static var legacyCodexCursorURL: URL {
+        URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent(".codex/automations/daily-gmail-summary/memory.md")
+    }
+
+    /// 把旧位置的 codex 游标搬到新位置。只在新位置还不存在、旧位置存在时搬一次——
+    /// 新位置一旦有内容就以它为准，绝不覆盖。读旧位置只需要读权限（沙箱只挡写不挡读）。
+    static func migrateLegacyCodexCursorIfNeeded(for sourceID: String) {
+        guard sourceID == DailySource.codex else { return }
+        let destination = DailySource.cursorFileURL(for: sourceID)
+        let manager = FileManager.default
+        guard !manager.fileExists(atPath: destination.path) else { return }
+        let legacy = legacyCodexCursorURL
+        guard manager.fileExists(atPath: legacy.path) else { return }
+        try? manager.createDirectory(
+            at: destination.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? manager.copyItem(at: legacy, to: destination)
     }
 
     /// 渲染出可直接投喂给任意 agent 的完整提示词。
     static func render(for sourceID: String) -> String {
+        migrateLegacyCodexCursorIfNeeded(for: sourceID)
         var text = body
         let replacements: [Placeholder: String] = [
             .dataDirectory: DailySummaryConstants.dataDirectoryURL.path,
@@ -210,8 +240,14 @@ enum DailySummaryPromptTemplate {
     <INGEST_CMD>
 
     Exit code 0 means published. Exit code 3 means this source is not the one currently selected \
-    in MailWidget's settings — that is not an error, the run simply did not publish. Any other \
-    non-zero code means the payload was rejected; report it briefly in Chinese.
+    in MailWidget's settings — that is not an error, the run simply did not publish.
+
+    If it fails because the App Group container cannot be reached, the payload you already wrote \
+    is still fine and MailWidget publishes it itself right after you exit — say so plainly in \
+    Chinese and treat the run as successful. This is expected whenever your own sandbox blocks \
+    access to the container rather than anything being wrong with the payload; do not retry it, \
+    do not rewrite the payload, and above all still advance the cursor in step 3. Any other \
+    non-zero code means the payload itself was rejected; report that one briefly in Chinese.
 
     ### 3. Advance the cursor
 

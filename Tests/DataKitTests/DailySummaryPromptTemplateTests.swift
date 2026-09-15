@@ -64,11 +64,19 @@ final class DailySummaryPromptTemplateTests: XCTestCase {
                       "载荷路径必须加引号——它含空格（Application Support）")
     }
 
-    /// Codex 必须继续用它自己的 memory.md：那个文件存着历史增量游标，换成
-    /// cursor-codex.md 会从零开始，导致邮件重复或漏报。
-    func testCodexKeepsItsOwnCursorFile() {
+    /// ⚠️ 这条原本断言的是反的：「Codex 必须继续用它自己的 memory.md，那个文件存着历史
+    /// 增量游标，换成 cursor-codex.md 会从零开始」。那个理由只在**原作者本机**成立
+    /// （他那台恰好有一份历史 memory.md）。2026-09-15 第二台机器实录推翻了它：codex 的
+    /// 沙箱把它自己的 `~/.codex` 设为只读，游标**一次都没写进去过**，agent 每轮都报
+    /// 「.codex 目录受环境只读限制，游标未能写入」，于是每次重扫最近 24 小时、每次产出
+    /// 几乎同一份简报，用户体感是"刷新是能刷新，但内容没怎么变"。
+    ///
+    /// 「不丢历史增量位置」这个诉求本身是对的，但正确做法是**迁移**（见
+    /// `migrateLegacyCodexCursorIfNeeded`），不是把写入目标钉死在一个不可写的目录里。
+    func testCodexCursorIsWritableAndSeparate() {
         let codexCursor = DailySummaryPromptTemplate.cursorPath(for: DailySource.codex)
-        XCTAssertTrue(codexCursor.hasSuffix(".codex/automations/daily-gmail-summary/memory.md"))
+        XCTAssertTrue(codexCursor.hasSuffix("cursor-codex.md"))
+        XCTAssertFalse(codexCursor.contains("/.codex/"), "又指回了 codex 的只读配置目录")
 
         let otherCursor = DailySummaryPromptTemplate.cursorPath(for: DailySource.claude)
         XCTAssertTrue(otherCursor.hasSuffix("cursor-claude.md"))
