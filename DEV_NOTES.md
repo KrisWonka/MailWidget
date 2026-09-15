@@ -46,6 +46,44 @@ entitlements 和 Info.plist 两边都会展开。**证书 CN 括号里那串不�
 → `MailWidget --ingest <载荷> --source <源>` 校验并发布进 App Group → widget 读。
 `IngestCommand` 的 schema + 邮箱归属校验是**唯一真闸门**；agent 自报的成功不作数。
 
+## ⚠️ 这个仓库最主要的 bug 来源：两条路径漂移
+
+**先读这一节再动手改任何东西。** 2026-09-13 到 09-15 连续三天每天都爆线上 bug，归类之后
+几乎全是同一个形状——**同一件事在两条路径上各写了一份，改一处、漏一处**：
+
+| 这件事 | app 内点刷新 | launchd 定时任务 | 爆出来的样子 |
+|---|---|---|---|
+| PATH 注入 | 早就有 | 漏了 | `env: node: No such file`，`exit 127`，整天没日报 |
+| 工作目录钉在 home | 早就有 | 漏了 | codex 沙箱降级只读，载荷写不出来 |
+| `--permission-mode auto` | 漏了 | 早就有 | 换台机器就卡死等权限 |
+| 关闭 stdin | 早就有 | 漏了 | agent 读 stdin，可能挂住 |
+| 发布守门 | 在 Publisher | IngestCommand 另写一份 | 守门被真正的入口绕过 |
+| 提示词 / runner 脚本 | 每次实时渲染 | 装任务那刻冻结在磁盘 | 模板层面的修复三周没生效 |
+
+**两条路径是什么**：
+- **A** = `DailyRegenerator.regenerate()` → `Process` 起 agent（用户点 ↻ 时走这条）
+- **B** = `DailySourceInstaller` 生成 `run-<source>.sh` → launchd 定时执行（每天早上走这条）
+
+**已经做的收敛**（改动前先确认你要改的东西在不在这些地方）：
+- `DataKit/AgentInvocation.swift` —— **调起 agent 的命令行唯一定义**（参数、shell 形态、
+  source→CLI 映射）。两条路径都从这里取，`Tests/DataKitTests/AgentInvocationParityTests.swift`
+  会在两边漂移时当场失败。
+- `DataKit/AgentRuntimePath.swift` —— PATH 与 shebang 解释器解析，两条路径共用。
+- `DataKit/LaunchAgentRunnerScript.swift` —— B 的脚本生成，可 `bash -n` 单测。
+- `DataKit/DailySummaryPublisher.swift` —— 发布的唯一咽喉，`IngestCommand` 已改为调用它。
+- `DailySourceInstaller.refreshInstalledArtifacts()` —— **启动时**把已装任务的提示词和
+  runner 脚本按当前代码重渲染，解决"生成物冻结在磁盘上"这一类。
+
+**仍未收敛（已知，按影响排序）**：
+1. 兜底发布的判据两份实现：A 是 `fallbackPublishDecision`（还比 `generatedAt`），
+   B 是 shell 里的 `mtime >= attempt_started`。两者严格程度不同。
+2. B 有 3 次重试 + 20 分钟看门狗，A 无重试 + 14 分钟看门狗。数值没有统一依据。
+3. CLI 可用性预检（`AgentCLILocator.unusableReason`）只有 A 有；B 遇到坏 CLI 会白跑三轮。
+4. 「生成中」标志只有 A 会写，定时任务跑的时候 widget 上没有任何提示。
+
+**动手前的固定检查**：你要改的行为，B 那条路径上对应的位置在哪？没有对应位置就说明它
+漏了。加不了共用定义时，至少加一条 parity 测试。
+
 ## 真机教训（每一条都是线上故障，不要"优化"掉）
 
 **launchd 环境与 app 进程环境不是一回事** —— 下面四条同源，都是"app 内那条路径早已修过、生成

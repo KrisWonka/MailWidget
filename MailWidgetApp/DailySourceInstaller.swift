@@ -162,6 +162,57 @@ enum DailySourceInstaller {
     /// **不渲染出占位符就不写**：`render` 在日报邮箱还没配置时会留下
     /// `<<MAILBOX_NOT_CONFIGURED>>`，那种半成品绝不能覆盖掉一份原本好好的提示词——
     /// 宁可保留旧的，也不要把定时任务喂成废的。
+    /// 启动时把已装任务的**全部生成物**对齐到当前代码：提示词 + runner 脚本。
+    ///
+    /// 两者都是"装任务那一刻"写死进磁盘的，app 升级都不会碰。只修提示词是不够的——
+    /// runner 脚本里同样住着会随代码演进的东西（PATH 注入、`cd "$HOME"`、看门狗、
+    /// 兜底发布、关 stdin），这些修复同样到不了已装好的机器。
+    static func refreshInstalledArtifacts() {
+        refreshInstalledPrompts()
+        refreshInstalledRunnerScripts()
+    }
+
+    /// 按当前代码重新生成每个已装来源的 `run-<source>.sh`。
+    ///
+    /// 解析不出 CLI 路径就跳过那个来源——宁可留着旧脚本，也不要写出一个指向空路径的
+    /// 废脚本把原本能跑的定时任务弄坏。
+    private static func refreshInstalledRunnerScripts() {
+        let manager = FileManager.default
+        let directory = DailySummaryConstants.dataDirectoryURL
+        guard let entries = try? manager.contentsOfDirectory(atPath: directory.path) else { return }
+
+        for entry in entries where entry.hasPrefix("run-") && entry.hasSuffix(".sh") {
+            let sourceID = String(entry.dropFirst("run-".count).dropLast(".sh".count))
+            guard let cli = AgentInvocation.cli(for: sourceID),
+                  let cliPath = AgentCLILocator.path(for: cli),
+                  manager.isExecutableFile(atPath: cliPath) else { continue }
+
+            let promptPath = directory.appendingPathComponent("prompt-\(sourceID).md").path
+            guard manager.fileExists(atPath: promptPath) else { continue }
+
+            let script = runnerScript(
+                command: AgentInvocation.shellCommand(
+                    executablePath: cliPath,
+                    source: sourceID,
+                    promptFileExpression: "\"\(promptPath)\""
+                ),
+                executablePath: cliPath,
+                fallbackIngest: (
+                    payloadPath: directory.appendingPathComponent(
+                        DailySummaryConstants.summaryFilename
+                    ).path,
+                    command: DailySummaryPromptTemplate.ingestCommand(for: sourceID)
+                )
+            )
+
+            let url = directory.appendingPathComponent(entry)
+            if let existing = try? String(contentsOf: url, encoding: .utf8), existing == script { continue }
+            try? backup(url)
+            try? write(script, to: url)
+            try? manager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        }
+    }
+
     static func refreshInstalledPrompts() {
         let manager = FileManager.default
         let directory = DailySummaryConstants.dataDirectoryURL
@@ -203,7 +254,11 @@ enum DailySourceInstaller {
         }
         return try installLaunchAgent(
             sourceID: DailySource.codex,
-            commandTemplate: "\"\(codex)\" exec --skip-git-repo-check \"$(cat {PROMPT_FILE})\"",
+            commandTemplate: AgentInvocation.shellCommand(
+                executablePath: codex,
+                source: DailySource.codex,
+                promptFileExpression: "{PROMPT_FILE}"
+            ),
             executablePath: codex,
             hour: hour,
             minute: minute
@@ -239,7 +294,11 @@ enum DailySourceInstaller {
         }
         return try installLaunchAgent(
             sourceID: DailySource.claude,
-            commandTemplate: "\"\(claude)\" -p --permission-mode auto \"$(cat {PROMPT_FILE})\"",
+            commandTemplate: AgentInvocation.shellCommand(
+                executablePath: claude,
+                source: DailySource.claude,
+                promptFileExpression: "{PROMPT_FILE}"
+            ),
             executablePath: claude,
             hour: hour,
             minute: minute

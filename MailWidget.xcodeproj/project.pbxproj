@@ -21,6 +21,7 @@
 		160C7C728CC7CB404ED1A920 /* DailyLinkAvailabilityStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C4DB35404881151A214EA13 /* DailyLinkAvailabilityStore.swift */; };
 		1676B7650C134DB607F9FCF0 /* MailSummaryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 397B861798543EFD8D7C48F6 /* MailSummaryStore.swift */; };
 		170DF5B8EA6085717A70A341 /* EmptyPayloadGuardTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4874BD96943F457B26FEB14C /* EmptyPayloadGuardTests.swift */; };
+		17D4DCA814D26E2042B7EE45 /* AgentInvocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BD8E548D7C400FA6BD4E811 /* AgentInvocation.swift */; };
 		180AEF1211C812035C5BF3AA /* AgentCLILocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F88505C6D99C55A93258EDAA /* AgentCLILocator.swift */; };
 		183CC59487097AF238FD271D /* DailyBriefTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 020CFC557B5EF71CBA9508EC /* DailyBriefTests.swift */; };
 		1AB7D3A9CF2D1BDFDD5C757A /* MailWidgetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0326AEF2D5881E2CA5364D26 /* MailWidgetView.swift */; };
@@ -56,6 +57,7 @@
 		61ADF7BF772C8012421D0224 /* SnapshotStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDCB04196092022FE745724F /* SnapshotStoreTests.swift */; };
 		650387E6B870F1AC90C45719 /* AgentCLILocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F88505C6D99C55A93258EDAA /* AgentCLILocator.swift */; };
 		6563D266A0803D548AF53E6A /* DailySourceInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = 555D2FBB87F0611A6C54BD7A /* DailySourceInstaller.swift */; };
+		6D1B3E86C2C3E97E213AE204 /* AgentInvocationParityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34F4C530AC69DFE593AF3FA1 /* AgentInvocationParityTests.swift */; };
 		6F7CEBCFB9983DBCF68B9375 /* MailSummaryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 397B861798543EFD8D7C48F6 /* MailSummaryStore.swift */; };
 		71E51D38FD2F00A96C3E888B /* MailDataProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73337E8E2F542AC6A054378 /* MailDataProvider.swift */; };
 		724D5F8A673D75CB505EDC34 /* WidgetPaging.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10633DAF7A452FCEAB0F9F71 /* WidgetPaging.swift */; };
@@ -83,10 +85,12 @@
 		97A713C78F5A1CDBEF0F11A2 /* DailyRegeneratorFallbackPublishTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD171D9464EBB5519DB55F7A /* DailyRegeneratorFallbackPublishTests.swift */; };
 		97C4A1C4D446D38922116F16 /* MailDataProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = C73337E8E2F542AC6A054378 /* MailDataProvider.swift */; };
 		9FF16ECE96121A2EEABAD78C /* DailyBrief.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85977B9622B78D6D2130ACB0 /* DailyBrief.swift */; };
+		9FF494E01E7E72C6AAC24A5F /* AgentInvocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BD8E548D7C400FA6BD4E811 /* AgentInvocation.swift */; };
 		A1265F33C7B4E324F069FD24 /* WidgetPaging.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10633DAF7A452FCEAB0F9F71 /* WidgetPaging.swift */; };
 		A1DAC5DFDC33FC13DD6A350D /* CursorPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C28018DBE13EE84D12FC1A2B /* CursorPathTests.swift */; };
 		A261D97AEF20E0C8BDCF0A9D /* DailySummaryWidgetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A7DC4F7573DDA0CF490246F /* DailySummaryWidgetView.swift */; };
 		A653D93572C5FDAD4E95FB70 /* App.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C800B9BD89237BCC6C40D79 /* App.swift */; };
+		A689ADF783CC7B30BC46E255 /* AgentInvocation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BD8E548D7C400FA6BD4E811 /* AgentInvocation.swift */; };
 		AA53416D14FD31FF09025ABE /* AppleScriptProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = F91C54A3B769570456E57841 /* AppleScriptProvider.swift */; };
 		ABE6299E2CE27D8DC10438B0 /* RefreshScheduler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B70D5909D0C1763E4A6BEC1 /* RefreshScheduler.swift */; };
 		ADFE281871809FD84BBDFDF2 /* DailyRegenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31FED381B8953927585942BE /* DailyRegenerator.swift */; };
@@ -175,6 +179,7 @@
 		29A611D4815C63FAAAF9CB73 /* AgentRuntimePathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRuntimePathTests.swift; sourceTree = "<group>"; };
 		307695529A134F9BE0E5D3C2 /* MailSummarizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailSummarizer.swift; sourceTree = "<group>"; };
 		31FED381B8953927585942BE /* DailyRegenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyRegenerator.swift; sourceTree = "<group>"; };
+		34F4C530AC69DFE593AF3FA1 /* AgentInvocationParityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentInvocationParityTests.swift; sourceTree = "<group>"; };
 		3704BA782307EDF43A4AC523 /* MailAccountProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailAccountProbe.swift; sourceTree = "<group>"; };
 		372A282D66F8A85154C3CB32 /* LaunchAgentRunnerScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAgentRunnerScript.swift; sourceTree = "<group>"; };
 		381FAF5A01C012017EEABCCF /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -189,6 +194,7 @@
 		5A8B81728D6BD16EBBD83A62 /* MailContentFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailContentFetcher.swift; sourceTree = "<group>"; };
 		65D0E37870AB2365A8CA4F20 /* MailLocalIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailLocalIndex.swift; sourceTree = "<group>"; };
 		67D99A6EB3D9472545534704 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		6BD8E548D7C400FA6BD4E811 /* AgentInvocation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentInvocation.swift; sourceTree = "<group>"; };
 		6C800B9BD89237BCC6C40D79 /* App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App.swift; sourceTree = "<group>"; };
 		6EDAC024D476C582B03B29B2 /* MediumMailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediumMailView.swift; sourceTree = "<group>"; };
 		7545A48FC3C5F244F8E36C23 /* DailyPageIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyPageIntent.swift; sourceTree = "<group>"; };
@@ -243,6 +249,7 @@
 			isa = PBXGroup;
 			children = (
 				090D1A0E47E836E640B2E999 /* AgentCLILocatorTests.swift */,
+				34F4C530AC69DFE593AF3FA1 /* AgentInvocationParityTests.swift */,
 				29A611D4815C63FAAAF9CB73 /* AgentRuntimePathTests.swift */,
 				8A909B2997269CF45D4515CB /* AppleScriptProviderErrorTests.swift */,
 				C28018DBE13EE84D12FC1A2B /* CursorPathTests.swift */,
@@ -341,6 +348,7 @@
 			isa = PBXGroup;
 			children = (
 				F88505C6D99C55A93258EDAA /* AgentCLILocator.swift */,
+				6BD8E548D7C400FA6BD4E811 /* AgentInvocation.swift */,
 				CBE2E9B4CBC564D11EA081F4 /* AgentRuntimePath.swift */,
 				F91C54A3B769570456E57841 /* AppleScriptProvider.swift */,
 				85977B9622B78D6D2130ACB0 /* DailyBrief.swift */,
@@ -502,6 +510,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				180AEF1211C812035C5BF3AA /* AgentCLILocator.swift in Sources */,
+				9FF494E01E7E72C6AAC24A5F /* AgentInvocation.swift in Sources */,
 				3A47E4905CFAEBEFDD90033E /* AgentRuntimePath.swift in Sources */,
 				DEF6741388E882828257285F /* AppleScriptProvider.swift in Sources */,
 				917284E2F22D488437FF4A04 /* ConfigIntent.swift in Sources */,
@@ -551,6 +560,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				650387E6B870F1AC90C45719 /* AgentCLILocator.swift in Sources */,
+				17D4DCA814D26E2042B7EE45 /* AgentInvocation.swift in Sources */,
 				ED69D440828542CA2B27166F /* AgentRuntimePath.swift in Sources */,
 				A653D93572C5FDAD4E95FB70 /* App.swift in Sources */,
 				AA53416D14FD31FF09025ABE /* AppleScriptProvider.swift in Sources */,
@@ -597,6 +607,8 @@
 			files = (
 				11818FD319AD17BA162C5F6A /* AgentCLILocator.swift in Sources */,
 				1D2538F454B444AD4421B2AB /* AgentCLILocatorTests.swift in Sources */,
+				A689ADF783CC7B30BC46E255 /* AgentInvocation.swift in Sources */,
+				6D1B3E86C2C3E97E213AE204 /* AgentInvocationParityTests.swift in Sources */,
 				CD63616282D5E003DC7E4DBD /* AgentRuntimePath.swift in Sources */,
 				B0BCADE9ACFC65FB128CCA18 /* AgentRuntimePathTests.swift in Sources */,
 				B8EE52969F282A12493F7D59 /* AppleScriptProvider.swift in Sources */,

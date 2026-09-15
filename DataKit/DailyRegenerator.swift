@@ -353,14 +353,7 @@ enum DailyRegenerator {
     /// 不经过这里，所以未知来源返回 nil 是"没有对应 CLI"而不是"CLI 没装"——
     /// 调用方据此分别给出"未知来源"和"未找到命令行"两种不同的日志文案。
     private static func cli(for source: String) -> AgentCLI? {
-        switch source {
-        case DailySource.codex:
-            return .codex
-        case DailySource.claude:
-            return .claude
-        default:
-            return nil
-        }
+        AgentInvocation.cli(for: source)
     }
 
     /// 给单测用的入口——`arguments(for:prompt:)` 是私有的，而这个函数产出的正是
@@ -369,32 +362,10 @@ enum DailyRegenerator {
         arguments(for: source, prompt: prompt)
     }
 
+    /// 参数的唯一定义在 `AgentInvocation`，与 launchd 那条路径共用——两边各写一份正是
+    /// `--permission-mode auto` 漏掉半年的原因。这里只做转发。
     private static func arguments(for source: String, prompt: String) -> [String] {
-        switch source {
-        case DailySource.codex:
-            // `codex exec --help` 确认 PROMPT 是位置参数（未提供或传 `-` 才会退回 stdin）。
-            // `--skip-git-repo-check`：宿主 app 的工作目录不是 git 仓库，codex 默认的
-            // 受信目录检查会直接拒绝执行（真机首跑实测命中）；这是官方给非仓库场景的出口。
-            return ["exec", "--skip-git-repo-check", prompt]
-        default:
-            // Claude：`claude -p --permission-mode auto <prompt>`。
-            //
-            // `--permission-mode auto` 与 `DailySourceInstaller.installClaudeJob` 完全对齐
-            // （那边的长注释写了取值考据：'default' 会等一个不存在的人点「允许」，
-            // 'dontAsk' 会静默拒绝掉没预先批准的 MCP 工具，'auto' 是唯一既不缩小工具集
-            // 又不会阻塞的选项）。
-            //
-            // 这个参数 2026-08-25 就因为 launchd 任务卡死近 3 小时而加过一次，但**只加在了
-            // launchd 那条路径**；手动「立即刷新」这条从功能引入起一直是 `["-p", prompt]`，
-            // 中间两次"修真机故障"的提交都没把它补上。2026-09-14 排查时才发现这个不对称。
-            //
-            // ⚠️ 记录一个容易误判的事实：在原作者本机上，缺这个参数**并不会**复现卡死——
-            // 实测一次完整运行 22 次工具调用 0 次被拒（`~/.claude/settings.json` 里的
-            // 放行规则恰好盖住了它用到的 Bash 和 Gmail MCP 工具），4 分 46 秒正常退出。
-            // 所以这条不是"当前症状的根因"，而是**换一台没有同款放行配置的机器就会中招**的
-            // 潜在缺陷——两条路径本该同构，不该靠用户的个人设置兜着。
-            return ["-p", "--permission-mode", "auto", prompt]
-        }
+        AgentInvocation.arguments(for: source, prompt: prompt)
     }
 
     /// PATH 的构造挪进 `AgentRuntimePath`，与 `DailySourceInstaller` 生成的 launchd

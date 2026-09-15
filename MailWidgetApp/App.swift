@@ -81,7 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 提示词是"装定时任务那一刻"写死进 prompt-<source>.md 的，app 升级不会碰它——
         // 于是模板层面的修复对已装好任务的机器永远不生效（2026-09-15 实录）。每次启动
         // 按当前模板重渲染一遍，内容没变就不写盘。
-        DailySourceInstaller.refreshInstalledPrompts()
+        DailySourceInstaller.refreshInstalledArtifacts()
 
         RefreshScheduler.shared.start()
         // 契约：收件箱 widget / 邮件总结在"Mail 里没有账户"时要能明确告知，而不是
