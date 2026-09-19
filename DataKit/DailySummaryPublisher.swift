@@ -60,15 +60,48 @@ enum DailySummaryPublisher {
         }
 
         let summary = try DailySummaryCodec.decode(Data(contentsOf: payloadURL))
-        let store = try DailySummaryStore()
+        let modifiedAt = (try? FileManager.default.attributesOfItem(atPath: payloadURL.path)[.modificationDate]) as? Date
+        try publishCore(
+            summary,
+            payloadModifiedAt: modifiedAt,
+            notBefore: notBefore,
+            context: PublishContext(
+                store: try DailySummaryStore(),
+                mirrorURL: publishedMirrorURL,
+                now: Date()
+            )
+        )
+        DailySourceSettings.recordSuccessfulIngest(source: source)
+        DailyLinkAvailabilityStore.refresh(for: summary.items.compactMap(\.messageIdHeader))
+        return summary
+    }
+
+    /// 发布核心需要的外部状态。生产环境用真的 App Group、真的数据目录、真的时钟；
+    /// 多日模拟（`DailyBriefSimulationTests`）用临时目录和一个可以快进的假时钟——
+    /// **绝不能碰用户真实的 widget 数据**，模拟一次要发布几十轮。
+    struct PublishContext {
+        var store: DailySummaryStore
+        var mirrorURL: URL
+        var now: Date
+    }
+
+    /// 发布的判定与落盘，不含"来源仲裁 / 记录 ingest / 刷新可用性"这些只在生产环境
+    /// 有意义的副作用。`publish(payloadURL:source:notBefore:)` 与模拟走的是**同一段**
+    /// 代码——模拟要是另写一份，测到的就是那一份，而不是线上真正在跑的这一份。
+    static func publishCore(
+        _ summary: DailySummary,
+        payloadModifiedAt: Date?,
+        notBefore: Date?,
+        context: PublishContext
+    ) throws {
+        let existing = try? context.store.load()
 
         if let notBefore {
-            let modifiedAt = (try? FileManager.default.attributesOfItem(atPath: payloadURL.path)[.modificationDate]) as? Date
             if case let .skip(reason) = freshnessDecision(
-                stagingModifiedAt: modifiedAt,
+                stagingModifiedAt: payloadModifiedAt,
                 runStartedAt: notBefore,
                 stagingGeneratedAt: summary.generatedDate,
-                publishedGeneratedAt: (try? store.load())?.generatedDate
+                publishedGeneratedAt: existing?.generatedDate
             ) {
                 throw DailySummaryPublisherError.staleForThisRun(reason: reason)
             }
@@ -76,29 +109,22 @@ enum DailySummaryPublisher {
 
         // 零条目守门。2026-09-14 实录：09:29 发布了一份带 `immediate` 的日报（回复
         // 口语诊所改约），用户 3 分钟后点了一下「立即刷新」，这次增量查询自然是零封
-        // 新邮件，agent 按提示词规则发布 `items: []`，**把那条还没办的事整个抹掉了**，
-        // 用户看到的就是"widget 什么都不显示了"。
+        // 新邮件，agent 按提示词规则发布 `items: []`，**把那条还没办的事整个抹掉了**。
+        // 闸门放在发布层而不是提示词里：发布层才是真闸门，agent 说什么不算数。
         //
-        // 根子在于日报是**增量**的（按游标），而 widget 把它当"当前待办清单"展示：
-        // 刚跑完没多久再点一次刷新，几乎必然零新邮件，于是那个 ↻ 按钮成了清空待办的
-        // 地雷。agent 自己也知道不对——它在运行输出里专门写了一段警告说"小组件现在
-        // 被刷成了空的，但这件事还没办"——但它受提示词规则约束只能照做。
-        //
-        // 所以闸门放在这里而不是提示词里：提示词同步改了（见
-        // `DailySummaryPromptTemplate`），但**发布层才是真闸门，agent 说什么不算数**，
-        // 这是本仓库反复确认过的原则。
+        // `now` 取自 context 而不是 `Date()`：「同一个自然日」的判断原先用的是墙上时间，
+        // 于是这条规则在快进时钟的模拟里根本测不到。
         if case let .keepExisting(count) = emptyPayloadDecision(
             incomingItemCount: summary.items.count,
-            existing: try? store.load()
+            existingItemCount: existing?.items.count ?? 0,
+            existingGeneratedAt: existing?.generatedDate,
+            now: context.now
         ) {
             throw DailySummaryPublisherError.emptyPayloadWouldEraseCurrentBrief(existingItemCount: count)
         }
 
-        try store.save(summary)
-        mirrorPublished(summary)
-        DailySourceSettings.recordSuccessfulIngest(source: source)
-        DailyLinkAvailabilityStore.refresh(for: summary.items.compactMap(\.messageIdHeader))
-        return summary
+        try context.store.save(summary)
+        writeMirror(summary, to: context.mirrorURL)
     }
 
     /// 兜底发布该不该真的执行——纯判定，不碰文件系统/App Group，方便单测直接喂值。
@@ -160,12 +186,16 @@ enum DailySummaryPublisher {
     /// 把刚发布的日报写一份到数据目录，供下一轮 agent 结转仍然有效的事项。失败不影响
     /// 发布本身——镜像缺了，最坏情况是下一轮退回"只看新邮件"，不会发错东西。
     static func mirrorPublished(_ summary: DailySummary) {
+        writeMirror(summary, to: publishedMirrorURL)
+    }
+
+    static func writeMirror(_ summary: DailySummary, to url: URL) {
         guard let data = try? DailySummaryCodec.encode(summary) else { return }
         try? FileManager.default.createDirectory(
-            at: publishedMirrorURL.deletingLastPathComponent(),
+            at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try? data.write(to: publishedMirrorURL, options: .atomic)
+        try? data.write(to: url, options: .atomic)
     }
 
     /// 启动时用 App Group 里现有的日报补齐镜像。镜像是这次才引入的，已经在跑的安装
