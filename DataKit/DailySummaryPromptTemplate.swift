@@ -187,7 +187,10 @@ enum DailySummaryPromptTemplate {
     item's date. Drop items that are done, expired, or superseded by newer mail about the \
     same event. A carried item keeps its original `id`, `gmailURL` and `messageIdHeader`; \
     refresh its `detail` and `level` when time has moved on (a `week` item due tomorrow is \
-    now `immediate`).
+    now `immediate`). Before carrying an item, re-read its source message and rebuild the \
+    `detail` from it: keep only what that message (or a reply in its thread) still supports. \
+    Never copy a carried `detail` forward unchecked — an earlier run may have been wrong, and \
+    carrying it would repeat the mistake every run from then on.
 
     The brief you publish is the union of still-open carried items and the new items, \
     deduplicated by underlying event, ranked as below, and cut to the item limit — when more \
@@ -216,6 +219,22 @@ enum DailySummaryPromptTemplate {
     task. An optional event is not a deadline. Use \
     \(localTimeZoneIdentifier) local time with a 24-hour clock. An event that already ended must \
     not remain an action recommendation.
+
+    ## Accuracy
+
+    The user acts on this brief, sometimes on deadlines, visas, money or enrollment, so a \
+    wrong sentence does real harm. Every fact in a `title` or `detail` — a rule, requirement, \
+    number, amount, date, ID, or who said what — must be stated in a message you read in this \
+    run, by someone in a position to know it. Do not fill anything in from your own knowledge \
+    or inference, and do not round a plausible guess into a statement.
+
+    The user's own sent messages show what the user did or asked, never what the answer is. \
+    A question the user asked stays open until a reply actually answers it. If the reply \
+    only points elsewhere (a link, another office) and gives no answer, the brief says the \
+    question is still unanswered and where to ask — it does not supply the answer.
+
+    Advice is allowed only when it is labelled as advice and rests on facts that meet the rule \
+    above. When you cannot find support for a detail, leave it out.
 
     ## Publishing (all three steps are required)
 

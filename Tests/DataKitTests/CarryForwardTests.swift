@@ -130,3 +130,36 @@ final class BacklogTests: XCTestCase {
         }
     }
 }
+
+/// 2026-09-19 实录：日报写「Rackham 全日制要 9 学分以上，还没补课的话周一前加上」。
+/// 所有邮件里没有任何一封这么说——「9+」出自用户自己发给国际中心的**提问**（"学费表写
+/// 9+，我想确认 8 学分是不是不够"），国际中心的回复只给了一个链接、没有回答。官网实际写的
+/// 是研究生 8 学分即全日制。agent 把用户的问题当成了官方结论，还给出了会让人去加一门不需要
+/// 的课的建议；之后每一轮结转都原样搬运，错误一直挂在 widget 上。同一份日报里还有一处
+/// 「会员号尾号 7649」，全部邮件里一次都没出现过。
+final class GroundingTests: XCTestCase {
+    private var rendered: String { DailySummaryPromptTemplate.render(for: DailySource.claude) }
+
+    /// 每条事实必须出自本轮读到的邮件，不许凭常识或推断补全。
+    func testFactsMustComeFromMessagesReadThisRun() {
+        XCTAssertTrue(rendered.contains("must be stated in a message you read in this"))
+        XCTAssertTrue(rendered.contains("Do not fill anything in from your own knowledge"))
+    }
+
+    /// 用户自己发出的邮件只能说明他问了什么，不能当成答案。
+    func testUsersOwnQuestionIsNotAnAnswer() {
+        XCTAssertTrue(rendered.contains("show what the user did or asked, never what the answer is"))
+        XCTAssertTrue(rendered.contains("stays open until a reply actually answers it"))
+    }
+
+    /// 回复只给了链接、没给答案时，要说"还没得到答复"，不许替它回答。
+    func testUnansweredReplyIsReportedAsUnanswered() {
+        XCTAssertTrue(rendered.contains("the question is still unanswered and where to ask"))
+    }
+
+    /// 结转时必须重新对照原文重建细节——错误一旦进了日报，不重新核对就会被一轮轮搬下去。
+    func testCarriedDetailsAreRebuiltFromSource() {
+        XCTAssertTrue(rendered.contains("re-read its source message and rebuild the"))
+        XCTAssertTrue(rendered.contains("Never copy a carried `detail` forward unchecked"))
+    }
+}
