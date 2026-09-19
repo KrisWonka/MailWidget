@@ -168,8 +168,48 @@ enum DailySourceInstaller {
     /// runner 脚本里同样住着会随代码演进的东西（PATH 注入、`cd "$HOME"`、看门狗、
     /// 兜底发布、关 stdin），这些修复同样到不了已装好的机器。
     static func refreshInstalledArtifacts() {
+        DailySummaryPublisher.seedPublishedMirrorIfNeeded()
         refreshInstalledPrompts()
         refreshInstalledRunnerScripts()
+        refreshInstalledSchedules()
+    }
+
+    /// 按当前时间表重写已装日报任务的 launchd plist，并重新装载。
+    ///
+    /// 同一类"生成物冻结在磁盘上"的问题：plist 也是装任务那一刻写死的。不刷新它，
+    /// 2026-09-19 把一天一次改成一天三次这个修复，对已经装好任务的机器就永远不生效。
+    ///
+    /// **只在内容确实变了时才 bootout/bootstrap**——重新装载 launchd 任务不是免费的，
+    /// 不能每次启动都做。只处理 `com.kris.gmaildaily.*`，邮件总结那条任务的时间是用户
+    /// 自己在面板里设的，绝不碰。
+    private static func refreshInstalledSchedules() {
+        let manager = FileManager.default
+        let agents = home.appendingPathComponent("Library/LaunchAgents")
+        guard let entries = try? manager.contentsOfDirectory(atPath: agents.path) else { return }
+        let prefix = "com.kris.gmaildaily."
+
+        for entry in entries where entry.hasPrefix(prefix) && entry.hasSuffix(".plist") {
+            let label = String(entry.dropLast(".plist".count))
+            let sourceID = String(label.dropFirst(prefix.count))
+            let scriptURL = DailySummaryConstants.dataDirectoryURL.appendingPathComponent("run-\(sourceID).sh")
+            guard manager.fileExists(atPath: scriptURL.path) else { continue }
+
+            let plistURL = agents.appendingPathComponent(entry)
+            let logURL = home.appendingPathComponent("Library/Logs/gmail-daily-\(sourceID).log")
+            let plist = launchAgentPlist(
+                label: label,
+                scriptPath: scriptURL.path,
+                logPath: logURL.path,
+                times: AgentRunPolicy.dailyBriefTimes(for: sourceID)
+            )
+            if let existing = try? String(contentsOf: plistURL, encoding: .utf8), existing == plist { continue }
+
+            try? backup(plistURL)
+            guard (try? write(plist, to: plistURL)) != nil else { continue }
+            let domain = "gui/\(getuid())"
+            run("/bin/launchctl", ["bootout", "\(domain)/\(label)"])
+            run("/bin/launchctl", ["bootstrap", domain, plistURL.path])
+        }
     }
 
     /// 按当前代码重新生成每个已装来源的 `run-<source>.sh`。
@@ -249,7 +289,7 @@ enum DailySourceInstaller {
     ///
     /// 时间默认 09:00：日报另外两条路径分别是 Claude 09:07、邮件总结 08:50，
     /// 三者故意错开，避免同时抢 launchd 或撞见彼此的日志。
-    static func installCodexJob(hour: Int = 9, minute: Int = 0) throws -> Outcome {
+    static func installCodexJob() throws -> Outcome {
         guard let codex = AgentCLILocator.path(for: .codex) else {
             throw InstallError.codexExecutableNotFound
         }
@@ -261,8 +301,6 @@ enum DailySourceInstaller {
                 promptFileExpression: "{PROMPT_FILE}"
             ),
             executablePath: codex,
-            hour: hour,
-            minute: minute
         )
     }
 
@@ -289,7 +327,7 @@ enum DailySourceInstaller {
     /// 不会卡住、也不缩小工具范围，但需要额外的 `allowDangerouslySkipPermissions`
     /// 开关且对一个无人看管、每天自动执行的任务放开"全部跳过"偏激进。'auto' 是唯一
     /// 既不缩小工具集、又保证不会再阻塞等待人工输入的选项，所以选它。
-    static func installClaudeJob(hour: Int = 9, minute: Int = 7) throws -> Outcome {
+    static func installClaudeJob() throws -> Outcome {
         guard let claude = AgentCLILocator.path(for: .claude) else {
             throw InstallError.claudeExecutableNotFound
         }
@@ -301,8 +339,6 @@ enum DailySourceInstaller {
                 promptFileExpression: "{PROMPT_FILE}"
             ),
             executablePath: claude,
-            hour: hour,
-            minute: minute
         )
     }
 
@@ -313,10 +349,9 @@ enum DailySourceInstaller {
     static func installLaunchAgent(
         sourceID: String,
         commandTemplate: String,
-        executablePath: String? = nil,
-        hour: Int,
-        minute: Int
+        executablePath: String? = nil
     ) throws -> Outcome {
+        let times = AgentRunPolicy.dailyBriefTimes(for: sourceID)
         guard commandTemplate.contains("{PROMPT_FILE}") else {
             throw InstallError.commandTemplateMissingPromptToken
         }
@@ -351,7 +386,7 @@ enum DailySourceInstaller {
         try backup(plistURL)
         try write(
             launchAgentPlist(label: label, scriptPath: scriptURL.path, logPath: logURL.path,
-                             hour: hour, minute: minute),
+                             times: times),
             to: plistURL
         )
 
@@ -369,7 +404,9 @@ enum DailySourceInstaller {
         DailySourceSettings.registerSource(sourceID)
 
         return Outcome(
-            summary: String(format: "已装载 %@，每天 %02d:%02d 运行", label, hour, minute),
+            summary: "已装载 \(label)，每天 "
+                + times.map { String(format: "%02d:%02d", $0.hour, $0.minute) }.joined(separator: "、")
+                + " 运行",
             writtenPaths: [promptURL.path, scriptURL.path, plistURL.path]
         )
     }
@@ -397,10 +434,26 @@ enum DailySourceInstaller {
         "\"\(DailySummaryPromptTemplate.hostExecutableURL.path)\" --daily-run"
     }
 
+    /// 单个时间点的旧签名，邮件总结那条任务还在用。
     static func launchAgentPlist(
         label: String, scriptPath: String, logPath: String, hour: Int, minute: Int
     ) -> String {
-        """
+        launchAgentPlist(label: label, scriptPath: scriptPath, logPath: logPath, times: [(hour, minute)])
+    }
+
+    /// `StartCalendarInterval` 接受一个 dict 的数组，每个元素一个触发时刻。
+    static func launchAgentPlist(
+        label: String, scriptPath: String, logPath: String, times: [(hour: Int, minute: Int)]
+    ) -> String {
+        let intervals = times.map { time in
+            """
+                    <dict>
+                        <key>Hour</key><integer>\(time.hour)</integer>
+                        <key>Minute</key><integer>\(time.minute)</integer>
+                    </dict>
+            """
+        }.joined(separator: "\n")
+        return """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
         <plist version="1.0">
@@ -413,10 +466,9 @@ enum DailySourceInstaller {
                 <string>\(scriptPath)</string>
             </array>
             <key>StartCalendarInterval</key>
-            <dict>
-                <key>Hour</key><integer>\(hour)</integer>
-                <key>Minute</key><integer>\(minute)</integer>
-            </dict>
+            <array>
+        \(intervals)
+            </array>
             <key>RunAtLoad</key>
             <false/>
             <key>StandardOutPath</key>

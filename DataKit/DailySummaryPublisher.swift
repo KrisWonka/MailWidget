@@ -95,6 +95,7 @@ enum DailySummaryPublisher {
         }
 
         try store.save(summary)
+        mirrorPublished(summary)
         DailySourceSettings.recordSuccessfulIngest(source: source)
         DailyLinkAvailabilityStore.refresh(for: summary.items.compactMap(\.messageIdHeader))
         return summary
@@ -139,6 +140,40 @@ enum DailySummaryPublisher {
             return .skip(reason: "App Group 里已经是不早于这份载荷的日报，agent 大概率已经自己发布过了")
         }
         return .publish
+    }
+
+    // MARK: - 结转镜像
+
+    /// 超出条目上限、被挤掉但仍然有效的事项。由 agent 写，下一轮与 `published.json` 一起
+    /// 重新评估。没有它，一条被挤掉的事项就永远回不来了：它的邮件在游标之前，增量检索
+    /// 看不到；它又不在已发布的那份里，结转也看不到（2026-09-19 实录：9/30 截止的牙科保险
+    /// 被一条七个月后才截止的培训挤掉，下一轮就彻底消失了）。
+    static var backlogURL: URL {
+        DailySummaryConstants.dataDirectoryURL.appendingPathComponent("backlog.json")
+    }
+
+    static var publishedMirrorURL: URL {
+        DailySummaryConstants.dataDirectoryURL
+            .appendingPathComponent(DailySummaryConstants.publishedMirrorFilename)
+    }
+
+    /// 把刚发布的日报写一份到数据目录，供下一轮 agent 结转仍然有效的事项。失败不影响
+    /// 发布本身——镜像缺了，最坏情况是下一轮退回"只看新邮件"，不会发错东西。
+    static func mirrorPublished(_ summary: DailySummary) {
+        guard let data = try? DailySummaryCodec.encode(summary) else { return }
+        try? FileManager.default.createDirectory(
+            at: publishedMirrorURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try? data.write(to: publishedMirrorURL, options: .atomic)
+    }
+
+    /// 启动时用 App Group 里现有的日报补齐镜像。镜像是这次才引入的，已经在跑的安装
+    /// 在下一次发布之前都没有它——而下一次发布恰恰就是第一个需要读它的那一轮。
+    static func seedPublishedMirrorIfNeeded() {
+        guard !FileManager.default.fileExists(atPath: publishedMirrorURL.path),
+              let summary = try? DailySummaryStore().load() else { return }
+        mirrorPublished(summary)
     }
 
     static func emptyPayloadDecision(incomingItemCount: Int, existing: DailySummary?) -> EmptyPayloadDecision {

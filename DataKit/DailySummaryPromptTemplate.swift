@@ -15,6 +15,8 @@ enum DailySummaryPromptTemplate {
         case dataDirectory = "<DATA_DIR>"
         case ingestCommand = "<INGEST_CMD>"
         case cursorFile = "<CURSOR_FILE>"
+        case publishedFile = "<PUBLISHED_FILE>"
+        case backlogFile = "<BACKLOG_FILE>"
         /// 邮箱未配置时的哨兵。`DailySummaryConstants.configuredMailbox` 是 nil 时，
         /// 正文里凡是原本要插入邮箱地址的地方都改插这一串，而不是悄悄渲染出一个
         /// 空字符串——`unresolvedPlaceholders(in:)` 把它当成普通占位符一并检出，
@@ -98,6 +100,8 @@ enum DailySummaryPromptTemplate {
             .dataDirectory: DailySummaryConstants.dataDirectoryURL.path,
             .ingestCommand: ingestCommand(for: sourceID),
             .cursorFile: cursorPath(for: sourceID),
+            .publishedFile: DailySummaryPublisher.publishedMirrorURL.path,
+            .backlogFile: DailySummaryPublisher.backlogURL.path,
         ]
         for (placeholder, value) in replacements {
             text = text.replacingOccurrences(of: placeholder.rawValue, with: value)
@@ -172,6 +176,29 @@ enum DailySummaryPromptTemplate {
     `to:` filter when step 2 requires it.
     4. Read enough message and thread body content to judge real urgency. Deduplicate by \
     underlying event, merging the same event across threads, forwards, and notifications.
+    5. Read <PUBLISHED_FILE> and <BACKLOG_FILE> if they exist. The first is the brief currently \
+    on the widget; the second holds items an earlier run judged worth showing but had to cut to \
+    stay within the item limit — treat both exactly the same way below. The search \
+    above only sees mail since the cursor, so without this step every run would throw away \
+    items that are still open just because no new mail arrived about them. For each of its \
+    items, decide whether it is still open. Keep it when its deadline or event time has not \
+    passed yet and, for items that ask the user to reply or act, you find no evidence it was \
+    already done — for a reply, check that thread for a message the user sent after the \
+    item's date. Drop items that are done, expired, or superseded by newer mail about the \
+    same event. A carried item keeps its original `id`, `gmailURL` and `messageIdHeader`; \
+    refresh its `detail` and `level` when time has moved on (a `week` item due tomorrow is \
+    now `immediate`).
+
+    The brief you publish is the union of still-open carried items and the new items, \
+    deduplicated by underlying event, ranked as below, and cut to the item limit — when more \
+    qualify than fit, drop the lowest-ranked ones whether they are new or carried. The \
+    `headline` describes this whole union, not just the new mail.
+
+    Whatever you cut for space is not discarded: write those items to <BACKLOG_FILE> as a JSON \
+    array of item objects in the same shape as `items`, replacing its previous contents (an \
+    empty array when nothing was cut). An item that was merely crowded out is still open, and \
+    without this file it could never come back — its mail is older than the cursor, so no \
+    later search would see it again.
 
     ## Classification
 
@@ -179,11 +206,14 @@ enum DailySummaryPromptTemplate {
 
     - `immediate` — blocking or safety issue, or a hard deadline within 24 hours
     - `today` — a real action due today
-    - `week` — a later follow-up
+    - `week` — an action due within the next 7 days. A deadline further out is `info` \
+    until it gets within a week, so it does not take a slot from something due sooner.
     - `optional` — an event or opportunity with no consequence for skipping
     - `info` — information requiring no action
 
-    A message with no direct ask is not a task. An optional event is not a deadline. Use \
+    Within the same level, the item with the nearest deadline or event time ranks first; an \
+    item with a real deadline outranks one without. A message with no direct ask is not a \
+    task. An optional event is not a deadline. Use \
     \(localTimeZoneIdentifier) local time with a 24-hour clock. An event that already ended must \
     not remain an action recommendation.
 
@@ -226,8 +256,9 @@ enum DailySummaryPromptTemplate {
     open the message directly in Apple Mail; rows without it fall back to opening Gmail in a \
     browser.
 
-    On a verified zero-message run, publish `items: []` with a short Chinese `headline` saying \
-    there is no new mail requiring attention. Always publish whatever you found: deciding on \
+    On a verified zero-message run, still publish the carried items from step 5 with a fresh \
+    `generatedAt` and `headline`; publish `items: []` only when nothing new arrived and nothing \
+    carries over either. Always publish whatever you found: deciding on \
     your own not to publish is never correct. Whether an empty payload is allowed to replace \
     the brief currently on the widget is decided by the ingest command, not by you — when it \
     declines it prints `保留今天已发布的日报` and exits 0, which is success, not a rejection; \

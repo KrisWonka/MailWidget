@@ -11,6 +11,14 @@ enum DailySummaryConstants {
     /// 只会让已有的 reload 调用点全部要跟着改。
     static let kind = "com.kris.GmailDailyWidget.daily"
     static let summaryFilename = "latest.json"
+
+    /// 当前 widget 上那份日报的只读镜像，放在数据目录里给 agent 读（结转用）。
+    ///
+    /// 为什么不让 agent 直接读 App Group 里那份：App Group 容器受系统保护，codex 的沙箱
+    /// 进不去（第二台机器实录：`--ingest` 报「无法访问 App Group」）。也不能读交接目录里的
+    /// `latest.json`——那是 agent 自己上一轮**写**的，发布层拒收时（比如零条目守门）它和
+    /// widget 上实际显示的不是同一份。
+    static let publishedMirrorFilename = "published.json"
     static let maximumItemCount = 6
 
     /// App Group UserDefaults 里存日报邮箱的键。

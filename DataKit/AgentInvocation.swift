@@ -101,5 +101,23 @@ enum AgentRunPolicy {
 
     /// 两次重试之间的间隔（秒）。
     static let unattendedRetryDelay = 60
+
+    /// 日报定时任务每天在哪几个时刻跑。
+    ///
+    /// 原先一天只跑一次（9:07 / 9:00）。2026-09-19 用户报「mailwidget 又不更新了」：widget
+    /// 上那份停在前一天 00:39，而 Gmail 里已经到了 14 个新线程、好几个标了 IMPORTANT——
+    /// 9:07 那轮查的时候它们还没到，要等第二天早上才会被看到。一份整天不动的"日报"
+    /// 和坏了没有区别。
+    ///
+    /// **多跑几次之所以现在才安全**：此前每轮都用"游标之后的新邮件"整份替换旧日报，
+    /// 一天跑三次就等于每几小时清空一次待办。结转（见提示词检索第 5 步）落地之后，
+    /// 每轮都是"仍有效的旧事项 ∪ 新邮件"，多跑只会更新、不会丢。
+    ///
+    /// claude 与 codex 错开 7 分钟、都避开 8:50 的邮件总结任务，免得同时抢 launchd 或
+    /// 撞见彼此的日志。
+    static func dailyBriefTimes(for source: String) -> [(hour: Int, minute: Int)] {
+        let minute = source == DailySource.codex ? 0 : 7
+        return [(9, minute), (13, minute), (18, minute)]
+    }
 }
 
