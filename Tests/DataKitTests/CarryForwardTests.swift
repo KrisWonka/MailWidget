@@ -163,3 +163,44 @@ final class GroundingTests: XCTestCase {
         XCTAssertTrue(rendered.contains("Never copy a carried `detail` forward unchecked"))
     }
 }
+
+/// 定时表可覆盖：一天三次对用 codex 的机器额度吃不消，而那台机器没有图形界面入口，
+/// 只能从命令行改；直接改 plist 会被每次启动的自动对齐刷回去。
+final class ScheduleOverrideTests: XCTestCase {
+    func testParsesValidTimes() {
+        let times = AgentRunPolicy.parseSchedule(["09:00", "13:30"])
+        XCTAssertEqual(times?.map(\.hour), [9, 13])
+        XCTAssertEqual(times?.map(\.minute), [0, 30])
+    }
+
+    /// 不管写的顺序如何，按时间先后排——plist 里乱序不好读，也容易让人以为漏了。
+    func testSortsByTimeOfDay() {
+        XCTAssertEqual(AgentRunPolicy.parseSchedule(["18:00", "09:00"])?.map(\.hour), [9, 18])
+    }
+
+    /// 单个时刻是合法的——这次就是要改成一天一次。
+    func testSingleTimeIsValid() {
+        XCTAssertEqual(AgentRunPolicy.parseSchedule(["09:00"])?.count, 1)
+    }
+
+    /// 任何一项不合法就整体作废、退回默认。宁可按默认跑，也不要因为配置写坏而一天都不跑。
+    func testRejectsBadInputEntirely() {
+        for bad in [["25:00"], ["09:61"], ["9"], ["09:00", "nope"], ["", ""], []] {
+            XCTAssertNil(AgentRunPolicy.parseSchedule(bad), "不该接受 \(bad)")
+        }
+    }
+
+    /// 没有覆盖项时是内置的一天三次，两个来源错开。
+    func testDefaultsWhenNotOverridden() {
+        let defaults = UserDefaults(suiteName: SharedConstants.appGroupIdentifier)
+        let saved = defaults?.stringArray(forKey: AgentRunPolicy.scheduleOverrideKey)
+        defaults?.removeObject(forKey: AgentRunPolicy.scheduleOverrideKey)
+        defer { if let saved { defaults?.set(saved, forKey: AgentRunPolicy.scheduleOverrideKey) } }
+
+        XCTAssertEqual(AgentRunPolicy.dailyBriefTimes(for: DailySource.codex).count, 3)
+        XCTAssertNotEqual(
+            AgentRunPolicy.dailyBriefTimes(for: DailySource.codex).map(\.minute),
+            AgentRunPolicy.dailyBriefTimes(for: DailySource.claude).map(\.minute)
+        )
+    }
+}

@@ -64,6 +64,58 @@ enum DailyRunMarkerCommand {
     }
 }
 
+/// `MailWidget --daily-schedule <09:00[,13:00,…] | default | show>`
+///
+/// 改日报定时任务每天在哪几个时刻跑。**必须走这个命令，不能手改 plist**：
+/// `refreshInstalledArtifacts()` 每次 app 启动都会把 plist 按代码里的时间表刷回去，
+/// 手改的下次开 app 就没了。这个命令写的是 App Group 里的覆盖项，刷新逻辑读它。
+///
+/// 存在的理由：一天三次对用 codex 的机器来说额度吃不消（第二台机器撞过上限），而那台
+/// 没有图形界面可用的入口，只能从命令行改。
+enum DailyScheduleCommand {
+    static func runIfRequested(arguments: [String]) -> Int32? {
+        guard let index = arguments.firstIndex(of: "--daily-schedule") else { return nil }
+        guard arguments.indices.contains(index + 1) else {
+            writeError("用法：MailWidget --daily-schedule <09:00[,13:00] | default | show>")
+            return 2
+        }
+        let value = arguments[index + 1]
+
+        if value == "show" {
+            let source = DailySourceSettings.selectedSource
+            let times = AgentRunPolicy.dailyBriefTimes(for: source)
+            let overridden = UserDefaults(suiteName: SharedConstants.appGroupIdentifier)?
+                .stringArray(forKey: AgentRunPolicy.scheduleOverrideKey) != nil
+            print("来源 \(source)：每天 "
+                + times.map { String(format: "%02d:%02d", $0.hour, $0.minute) }.joined(separator: "、")
+                + (overridden ? "（已自定义）" : "（默认）"))
+            return 0
+        }
+
+        if value == "default" {
+            AgentRunPolicy.setScheduleOverride(nil)
+        } else {
+            let parts = value.split(separator: ",").map { String($0).trimmingCharacters(in: .whitespaces) }
+            guard AgentRunPolicy.parseSchedule(parts) != nil else {
+                writeError("时间格式不对：\(value)。要写成 09:00 或 09:00,13:00,18:00。")
+                return 2
+            }
+            AgentRunPolicy.setScheduleOverride(parts)
+        }
+
+        // 立刻把已装的任务重装成新时间表，不用等下次开 app。
+        DailySourceInstaller.refreshInstalledArtifacts()
+        let times = AgentRunPolicy.dailyBriefTimes(for: DailySourceSettings.selectedSource)
+        print("日报定时已改为每天 "
+            + times.map { String(format: "%02d:%02d", $0.hour, $0.minute) }.joined(separator: "、"))
+        return 0
+    }
+
+    private static func writeError(_ message: String) {
+        FileHandle.standardError.write(Data((message + "\n").utf8))
+    }
+}
+
 enum IngestCommand {
     static func runIfRequested(arguments: [String]) -> Int32? {
         guard let flagIndex = arguments.firstIndex(of: "--ingest") else {

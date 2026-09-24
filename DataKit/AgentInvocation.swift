@@ -115,9 +115,48 @@ enum AgentRunPolicy {
     ///
     /// claude 与 codex 错开 7 分钟、都避开 8:50 的邮件总结任务，免得同时抢 launchd 或
     /// 撞见彼此的日志。
+    /// App Group 里的时间表覆盖项。存成 `["09:00", "13:00"]` 这样的字符串数组。
+    ///
+    /// 为什么必须做成可配置而不是直接去改 plist：`refreshInstalledArtifacts()` 每次 app 启动
+    /// 都会把 plist 按这里的返回值刷回去（那是为了让代码里的时间表能到达已装好的机器）。
+    /// 手工改过的 plist 下一次开 app 就被覆盖——正是"生成物冻结在磁盘上"那个坑的反面。
+    static let scheduleOverrideKey = "dailyBriefSchedule"
+
+    private static var defaults: UserDefaults? {
+        UserDefaults(suiteName: SharedConstants.appGroupIdentifier)
+    }
+
     static func dailyBriefTimes(for source: String) -> [(hour: Int, minute: Int)] {
+        if let override = defaults?.stringArray(forKey: scheduleOverrideKey),
+           let parsed = parseSchedule(override) {
+            return parsed
+        }
         let minute = source == DailySource.codex ? 0 : 7
         return [(9, minute), (13, minute), (18, minute)]
+    }
+
+    /// `"09:00"` / `"9:00"` → `(9, 0)`。任何一项不合法就整体作废、退回默认时间表——
+    /// 宁可按默认跑，也不要因为一个写坏的配置让日报一天都不跑。
+    static func parseSchedule(_ values: [String]) -> [(hour: Int, minute: Int)]? {
+        guard !values.isEmpty else { return nil }
+        var times: [(hour: Int, minute: Int)] = []
+        for value in values {
+            let parts = value.split(separator: ":")
+            guard parts.count == 2,
+                  let hour = Int(parts[0]), let minute = Int(parts[1]),
+                  (0...23).contains(hour), (0...59).contains(minute)
+            else { return nil }
+            times.append((hour, minute))
+        }
+        return times.sorted { $0.hour * 60 + $0.minute < $1.hour * 60 + $1.minute }
+    }
+
+    /// 写入覆盖项；传 nil 清除、退回默认。写完立刻落盘——调用方是个写完就 `Darwin.exit`
+    /// 的子命令，来不及等异步刷盘（2026-09-15 `--daily-run` 踩过同一个坑）。
+    static func setScheduleOverride(_ values: [String]?) {
+        if let values { defaults?.set(values, forKey: scheduleOverrideKey) }
+        else { defaults?.removeObject(forKey: scheduleOverrideKey) }
+        defaults?.synchronize()
     }
 }
 

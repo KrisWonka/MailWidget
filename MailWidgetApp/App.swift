@@ -29,6 +29,14 @@ struct MailWidgetApp: App {
             fflush(stderr)
             Darwin.exit(exitCode)
         }
+        // `MailWidget --daily-schedule <…>`：改日报定时时刻。同一先例，处理完立即退出。
+        if let exitCode = DailyScheduleCommand.runIfRequested(
+            arguments: ProcessInfo.processInfo.arguments
+        ) {
+            fflush(stdout)
+            fflush(stderr)
+            Darwin.exit(exitCode)
+        }
         // 契约 12：`MailWidget --summarize <scopeID>`，同一先例——同步跑完就退出，
         // 不建立任何 Scene。
         if let exitCode = SummarizeCommand.runIfRequested(
